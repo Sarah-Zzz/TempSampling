@@ -1,0 +1,11 @@
+# This are the configurations for basic setup you may need to know.
+mode: "(default: baseline) the mode of the batch sampler. it can be baseline, batch_stable_freezing_large (specially for GDELT and MAG), or batch_stable_freezing"
+freeze_similarity: "(default: 0.9) the similarity threshold for freezing nodes at batching usage. now it is the same as adaptive batching usage, YOU CAN CHANGE THIS BUT KEEP IT LARGER THAN 0.8" 
+
+# This are the configurations for the adaptive update experiment.
+batch_level_log: "(default: false) enable batch level log. if set to true, it will log the batch level information, such as batch size, latency, and utilization"
+profile_stable: "(default: false) enable profile stable nodes. if set to true, it will tell you how many updates are stable at this training"
+adaptive_update: "(default: false) enable adaptive update. if set to true, it will enable the functionaly of the adaptive update
+adaptive_update_similarity: "(default: 0.9---now the same as adaptive batching usage, no need for now) similarity threshold for adaptive update. if the similarity is larger than this threshold, then the node will be skipped, otherwise it will be updated. we use cosine similarity to measure the similarity: -1 (orthogonal) to 1 (same)"
+adaptive_update_window_size: "(default: 2) no need for now"
+adaptive_update_epoch: "(default: 1) no need for now"

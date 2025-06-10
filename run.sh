@@ -1,0 +1,1 @@
+python train_simple.py --extra_config ./config/adapt_exp/test_01.yml
