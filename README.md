@@ -1,6 +1,6 @@
 ## Overview
 
-This repo is the experimental code for *Cascade: A Dependency-aware Efficient Training Framework for Temporal Graph Neural Network*. For open-source release please refer to future links.
+This repo is the experimental code for *Cascade: A Dependency-aware Efficient Training Framework for Temporal Graph Neural Network* with dependency/stable check. For open-source release, please refer to future links.
 
 ## Requirements
 - python >= 3.6.13
