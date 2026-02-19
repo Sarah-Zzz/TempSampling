@@ -221,16 +221,22 @@ class ParallelSampler
           }
         }
 
-        inline bool add_neighbor(std::vector<NodeIDType> *_row, std::vector<NodeIDType> *_col,
+        inline void add_neighbor(std::vector<NodeIDType> *_row, std::vector<NodeIDType> *_col,
                                  std::vector<EdgeIDType> *_eid, std::vector<TimeStampType> *_ts,
                                  std::vector<TimeStampType> *_dts, std::vector<NodeIDType> *_nodes, 
                                  EdgeIDType &k, TimeStampType &src_ts, int &row_id,
-                                 py::array_t<bool> node_stable_flag, NodeIDType src_global_id)
+                                 NodeIDType src_node_id, py::array_t<bool>* node_stable_flag_ptr)
         {
-            auto stable_flag_data = node_stable_flag.unchecked<1>();
-            if (stable_flag_data(indices[k]) && stable_flag_data(src_global_id))
-            {
-                return false; // Skip adding this edge
+            if (node_stable_flag_ptr != nullptr) {
+                auto stable_flag_data = node_stable_flag_ptr->unchecked<1>();
+                NodeIDType dst_node_id = indices[k];
+                if (stable_flag_data(src_node_id) && stable_flag_data(dst_node_id)) {
+                    // std::cout << "[add_neighbor] SKIP [" << src_node_id << ", " << dst_node_id << "]" << std::endl;
+                    return;
+                }
+                // std::cout << "[add_neighbor]: node_stable_flag_ptr is not nullptr, dst_node_id: " << dst_node_id << std::endl;
+            } else {
+                // std::cout << "[add_neighbor]: node_stable_flag_ptr is nullptr" << std::endl;
             }
             _row->push_back(row_id);
             _col->push_back(_nodes->size());
@@ -241,7 +247,6 @@ class ParallelSampler
                 _ts->push_back(ts[k]);
             _dts->push_back(src_ts - ts[k]);
             _nodes->push_back(indices[k]);
-            return true;
             // _row.push_back(0);
             // _col.push_back(0);
             // _eid.push_back(0);
@@ -298,11 +303,11 @@ class ParallelSampler
             }
             _ret.dim_in = _ret.nodes.size();
             _ret.dim_out = cum_row.back();
-            std::cout << "[PSF] combine_coo: dim_in=" << _ret.dim_in << " dim_out=" << _ret.dim_out << std::endl;
+            // std::cout << "[PSF] combine_coo: dim_in=" << _ret.dim_in << " dim_out=" << _ret.dim_out << std::endl;
         }
 
         void sample_layer(std::vector<NodeIDType> &_root_nodes, std::vector<TimeStampType> &_root_ts,
-                          int neighs, bool use_ptr, bool from_root, py::array_t<bool> node_stable_flag)
+                          int neighs, bool use_ptr, bool from_root, py::array_t<bool>* node_stable_flag_ptr)
         {
             double t_s = omp_get_wtime();
             std::vector<NodeIDType> *root_nodes;
@@ -357,7 +362,7 @@ class ParallelSampler
 #pragma omp for schedule(static, int(ceil(static_cast<float>((*root_nodes).size()) / num_threads)))
                     for (std::vector<NodeIDType>::size_type j = 0; j < (*root_nodes).size(); j++)
                     {
-                        NodeIDType src_global_id = (*root_nodes)[j];
+                        NodeIDType n = (*root_nodes)[j];
                         // if (tid == 16)
                         //     std::cout << _out_node[tid] << " " <<j << " " << n << std::endl;
                         TimeStampType nts = (*root_ts)[j];
@@ -395,19 +400,16 @@ class ParallelSampler
                         }
                         // std::cout << n << " " << s_search << " " << e_search << std::endl;
                         double t_sample_s = omp_get_wtime();
-                        bool neighbor_added = false;
                         if ((recent) || (e_search - s_search < neighs))
                         {                            
                             // no sampling, pick recent neighbors
-                            for (EdgeIDType k = e_search;
-                                 k > std::max(s_search, e_search - neighs);
-                                 k--) {
-                              if (ts[k] < nts + offset - 1e-7f) {
-                                neighbor_added = add_neighbor(_row[tid], _col[tid], _eid[tid],
-                                             _ts[tid], _dts[tid], _nodes[tid],
-                                             k, nts, _out_node[tid],
-                                             node_stable_flag, src_global_id);
-                              }
+                            for (EdgeIDType k = e_search; k > std::max(s_search, e_search - neighs); k--)
+                            {
+                                if (ts[k] < nts + offset - 1e-7f)
+                                {
+                                    add_neighbor(_row[tid], _col[tid], _eid[tid], _ts[tid], 
+                                                 _dts[tid], _nodes[tid], k, nts, _out_node[tid], n, node_stable_flag_ptr);
+                                }
                             }
                         }
                         else
@@ -416,17 +418,14 @@ class ParallelSampler
                             for (int _i = 0; _i < neighs; _i++)
                             {
                                 EdgeIDType picked = s_search + rand_r(&loc_seed) % (e_search - s_search + 1);
-                                if (ts[picked] < nts + offset - 1e-7f) {
-                                  neighbor_added = add_neighbor(_row[tid], _col[tid], _eid[tid],
-                                               _ts[tid], _dts[tid], _nodes[tid],
-                                               picked, nts, _out_node[tid],
-                                               node_stable_flag, src_global_id);
+                                if (ts[picked] < nts + offset - 1e-7f)
+                                {
+                                    add_neighbor(_row[tid], _col[tid], _eid[tid], _ts[tid], 
+                                                 _dts[tid], _nodes[tid], picked, nts, _out_node[tid], n, node_stable_flag_ptr);
                                 }
                             }
                         }
-                        if (neighbor_added) {
-                            _out_node[tid] += 1;
-                        }
+                        _out_node[tid] += 1;
                         if (tid == 0)
                             ret[0].sample_time += omp_get_wtime() - t_sample_s;
                     }
@@ -443,13 +442,22 @@ class ParallelSampler
             ret[0].tot_time += omp_get_wtime() - t_s;
         }
 
-        void sample(std::vector<NodeIDType> &root_nodes, std::vector<TimeStampType> &root_ts, py::array_t<bool> node_stable_flag)
+        void sample(std::vector<NodeIDType> &root_nodes, std::vector<TimeStampType> &root_ts, py::object node_stable_flag_obj)
         {
             // a weird bug, dgl library seems to modify the total number of threads
             omp_set_num_threads(num_threads);
             ret.resize(0);
             bool first_layer = true;
             bool use_ptr = false;
+
+            py::array_t<bool>* node_stable_flag_ptr = nullptr;
+            py::array_t<bool> stable_flag_array; // Declared here to ensure lifetime
+
+            if (!node_stable_flag_obj.is_none()) {
+                stable_flag_array = node_stable_flag_obj.cast<py::array_t<bool>>();
+                node_stable_flag_ptr = &stable_flag_array;
+            }
+
             for (int i = 0; i < num_layers; i++)
             {
                 ret.resize(ret.size() + num_history);
@@ -461,9 +469,9 @@ class ParallelSampler
                 else
                     use_ptr = false;
                 if (i==0)
-                    sample_layer(root_nodes, root_ts, num_neighbors[i], use_ptr, true, node_stable_flag);
+                    sample_layer(root_nodes, root_ts, num_neighbors[i], use_ptr, true, node_stable_flag_ptr);
                 else
-                    sample_layer(root_nodes, root_ts, num_neighbors[i], use_ptr, false, node_stable_flag);
+                    sample_layer(root_nodes, root_ts, num_neighbors[i], use_ptr, false, node_stable_flag_ptr);
             }
         }
 };
@@ -479,9 +487,6 @@ inline py::array vec2npy(const std::vector<T> &vec)
     return py::array(v->size(), v->data(), capsule);
     // return py::array(vec.size(), vec.data());
 }
-
-#include <set>
-#include <map>
 
 PYBIND11_MODULE(sampler_core, m)
 {
@@ -508,7 +513,7 @@ PYBIND11_MODULE(sampler_core, m)
                       std::vector<EdgeIDType> &, std::vector<TimeStampType> &,
                       int, int, int, std::vector<int> &, bool, bool,
                       int, TimeStampType>())
-        .def("sample", &ParallelSampler::sample)
+        .def("sample", &ParallelSampler::sample, py::arg("root_nodes"), py::arg("root_ts"), py::arg("node_stable_flag_obj") = py::none())
         .def("reset", &ParallelSampler::reset)
         .def("filter", &ParallelSampler::filter)
         .def("get_ret", [](const ParallelSampler &ps) { return ps.ret; });

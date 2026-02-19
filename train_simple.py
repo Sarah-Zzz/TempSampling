@@ -435,11 +435,14 @@ def eval(mode='val'):
             root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows) * neg_samples)]).astype(np.int32)
             ts = np.tile(rows.time.values, neg_samples + 2).astype(np.float32)
             if sampler is not None:
+                # print("[eval] sampling")
                 if 'no_neg' in sample_param and sample_param['no_neg']:
                     pos_root_end = len(rows) * 2
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], None)
+                    # sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
                 else:
-                    sampler.sample(root_nodes, ts)
+                    sampler.sample(root_nodes, ts, None)
+                    # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
             if gnn_param['arch'] != 'identity':
                 mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
@@ -758,38 +761,40 @@ for e in range(train_param['epoch']):
                     #     pos_root_end = pos_root_end_reduced
                     # else:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
+                    # sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
                 else:
-                    sampler.sample(root_nodes, ts)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
+                    # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
 
                 # ====================================
                 # TODO(sarahz): 20260112 add post-sample filter
                 # ====================================
-                if args.post_sample_filter:
-                    keeps = [{} for _ in range(len(ret))]
-                    for idx, r in enumerate(ret):
-                        keep = {int(e): False for e in r.eid()}
-                        eids = r.eid()
-                        nodes = r.nodes()
-                        row = r.row()
-                        col = r.col()
-                        for i in range(len(eids)):
-                            eid = int(eids[i])
-                            if keep[eid]:
-                                continue
-                            # nodes[col[i]] -> nodes[row[i]]
-                            # b is the destination node
-                            # event eid[i], row[i], col[i], ts[i], dts[i]
-                            a = nodes[col[i]]
-                            b = nodes[row[i]]                            
-                            if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
-                                # dst (root node) is not stable, keep the event
-                                keep[eid] = True
-                        keeps[idx] = keep
+                # if args.post_sample_filter:
+                #     keeps = [{} for _ in range(len(ret))]
+                #     for idx, r in enumerate(ret):
+                #         keep = {int(e): False for e in r.eid()}
+                #         eids = r.eid()
+                #         nodes = r.nodes()
+                #         row = r.row()
+                #         col = r.col()
+                #         for i in range(len(eids)):
+                #             eid = int(eids[i])
+                #             if keep[eid]:
+                #                 continue
+                #             # nodes[col[i]] -> nodes[row[i]]
+                #             # b is the destination node
+                #             # event eid[i], row[i], col[i], ts[i], dts[i]
+                #             a = nodes[col[i]]
+                #             b = nodes[row[i]]                            
+                #             if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
+                #                 # dst (root node) is not stable, keep the event
+                #                 keep[eid] = True
+                #         keeps[idx] = keep
 
-                    sampler.filter(keeps)
-                    ret = sampler.get_ret()
+                #     sampler.filter(keeps)
+                #     ret = sampler.get_ret()
 
                 # time_sample += ret[0].sample_time()
                 time_sample += time.time() - t_tot_s
@@ -1206,9 +1211,9 @@ for e in range(train_param['epoch']):
                 if sampler is not None:
                     if 'no_neg' in sample_param and sample_param['no_neg']:
                         pos_root_end = root_nodes.shape[0] * 2 // 3
-                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
+                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
                     else:
-                        sampler.sample(root_nodes, ts)
+                        sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
                     ret = sampler.get_ret()
 
                     # ====================================
@@ -1242,30 +1247,30 @@ for e in range(train_param['epoch']):
                     #     For b in all possible (a,b)---edges to b
                     #     # if the sampled source node is unstable, we keep root nodes and the event	
                     #         Keep event
-                    if args.post_sample_filter:
-                        keeps = [{} for _ in range(len(ret))]
-                        for idx, r in enumerate(ret):
-                            keep = {int(e): False for e in r.eid()}
-                            eids = r.eid()
-                            nodes = r.nodes()
-                            row = r.row()
-                            col = r.col()
-                            for i in range(len(eids)):
-                                eid = int(eids[i])
-                                if keep[eid]:
-                                    continue
-                                # nodes[col[i]] -> nodes[row[i]]
-                                # b is the destination node
-                                # event eid[i], row[i], col[i], ts[i], dts[i]
-                                a = nodes[col[i]]
-                                b = nodes[row[i]]                            
-                                if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
-                                    # dst (root node) is not stable, keep the event
-                                    keep[eid] = True
-                            keeps[idx] = keep
+                    # if args.post_sample_filter:
+                    #     keeps = [{} for _ in range(len(ret))]
+                    #     for idx, r in enumerate(ret):
+                    #         keep = {int(e): False for e in r.eid()}
+                    #         eids = r.eid()
+                    #         nodes = r.nodes()
+                    #         row = r.row()
+                    #         col = r.col()
+                    #         for i in range(len(eids)):
+                    #             eid = int(eids[i])
+                    #             if keep[eid]:
+                    #                 continue
+                    #             # nodes[col[i]] -> nodes[row[i]]
+                    #             # b is the destination node
+                    #             # event eid[i], row[i], col[i], ts[i], dts[i]
+                    #             a = nodes[col[i]]
+                    #             b = nodes[row[i]]                            
+                    #             if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
+                    #                 # dst (root node) is not stable, keep the event
+                    #                 keep[eid] = True
+                    #         keeps[idx] = keep
 
-                        sampler.filter(keeps)
-                        ret = sampler.get_ret()
+                    #     sampler.filter(keeps)
+                    #     ret = sampler.get_ret()
 
                     # time_sample += ret[0].sample_time()
                     time_sample += time.time() - t_tot_s
@@ -1411,9 +1416,9 @@ for e in range(train_param['epoch']):
             if sampler is not None:
                 if 'no_neg' in sample_param and sample_param['no_neg']:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
                 else:
-                    sampler.sample(root_nodes, ts)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
                 ret = sampler.get_ret()
                 # time_sample += ret[0].sample_time()
                 time_sample += time.time() - t_tot_s
