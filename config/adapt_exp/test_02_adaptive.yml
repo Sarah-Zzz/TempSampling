@@ -59,7 +59,7 @@ observe_batch_utilization: false
 # for EXP usage
 batch_level_log: false
 profile_stable: false
-adaptive_update: false
+adaptive_update: true
 adaptive_update_similarity: 0.9
 adaptive_update_window_size: 2
 adaptive_update_epoch: 1

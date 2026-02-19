@@ -515,6 +515,8 @@ total_batch_sum = 0
 nodes_updated = 0
 nodes_reduced = 0
 time_updater = 0
+# TODO: track # of edges for post_sample_filter
+total_edges_sampled = 0
 
 
 observing = args.observing
@@ -767,6 +769,12 @@ for e in range(train_param['epoch']):
                     sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
                     # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
+                # edges_sampled = 0
+                # for r in ret:
+                #     edges_sampled += len(r.eid())
+                edges_sampled = sum(len(r.eid()) for r in ret)
+                # print("[PSF] {} edges sampled".format(edges_sampled))
+                total_edges_sampled += edges_sampled
 
                 # ====================================
                 # TODO(sarahz): 20260112 add post-sample filter
@@ -1215,6 +1223,9 @@ for e in range(train_param['epoch']):
                     else:
                         sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
                     ret = sampler.get_ret()
+                    edges_sampled = sum(len(r.eid()) for r in ret)
+                    # print("[PSF] {} edges sampled".format(edges_sampled))
+                    total_edges_sampled += edges_sampled
 
                     # ====================================
                     # TODO(sarahz): 20260112 add post-sample filter
@@ -1687,6 +1698,8 @@ log_file.write("\n\n")
 if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_large':
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}\n'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
+    print('\ttotal_edges_sampled: {}'.format(total_edges_sampled))
+    log_file.write('\ttotal_edges_sampled: {}\n'.format(total_edges_sampled))
 else:
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}'.format(total_train_time, total_batch_sum / total_batch_count))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}\n'.format(total_train_time, total_batch_sum / total_batch_count))

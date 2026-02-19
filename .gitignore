@@ -1,0 +1,51 @@
+### --- OS Specific --- ###
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.Spotlight-V100
+.Trashes
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+### --- Development Tools --- ###
+# Text Editors & IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+### --- Environment & Secrets --- ###
+# Never push your keys or local environment configs!
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+auth.json
+
+### --- Common Language Folders --- ###
+# Dependency directories
+node_modules/
+jspm_packages/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+out/
+*.log

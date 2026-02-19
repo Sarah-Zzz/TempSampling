@@ -51,7 +51,7 @@ observe_batch_latency: false
 observe_batch_utilization: false
 
 # batch sampler configs: stable nodes
-freeze_similarity: 0.95
+freeze_similarity: 0.98
 freeze_any: true
 freeze_window_size: 2
 

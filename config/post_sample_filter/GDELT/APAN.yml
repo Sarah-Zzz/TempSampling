@@ -1,7 +1,6 @@
 # basic configs
-data: WIKI  # dataset name
-# config: config/eval/TGAT_lr_mod.yml   # path to config file
-config: config/eval/TGN_lr_mod.yml
+data: GDELT  # dataset name
+config: config/eval/APAN_lr_mod_large.yml  # path to config file
 gpu: '0'  # which GPU to use
 model_name: ''  # name of stored model
 use_inductive: false
@@ -9,39 +8,34 @@ rand_edge_features: 0
 rand_node_features: 0
 eval_neg_samples: 1  # Note: changes test metric to AP+MRR
 ratio: 0.5
-epoch: -1
+epoch: 15
 batch_size: -1
-
+lr_scale: true
+lr_scale_factor: 1.0
+lr_scale_ceiling: 100.0
 
 # neighbor sampler configs
-chunk_num: 1
-sampler_for_each_chunk: false
+chunk_num: 50
+sampler_for_each_chunk: true
 enable_pickle: false
 cache_dir: sampler_caches
 use_full_edge: false
 
 
 # batch sampler configs: basic
-mode: batch_stable_freezing  # baseline, batch_stable_freezing_large, batch_stable_freezing
-node_count: 140 
-window_size: 10
+mode: batch_stable_freezing_large  # baseline, batch_stable_freezing_large, batch_stable_freezing
+node_count: 450 
+window_size: 4
 color_limit: -1
 color_stack_per_node: 1
 color_num_hops: 2
 
-lr_scale_factor: 1.0
-lr_scale_ceiling: 100.0
 
 adaptive_node_count: log  # disable, linear, log
-step_scale: 10
-step_size: 10
+step_scale: 50
+step_size: 0
 minimum_scale_factor: 0.5
-max_batch_size: 6000
-
-# batch sampler configs: stable nodes
-freeze_similarity: 0.9
-freeze_any: true
-freeze_window_size: 2
+max_batch_size: 8000
 
 observing: false
 lr_scale: true
@@ -56,7 +50,13 @@ save_count: false
 observe_batch_latency: false
 observe_batch_utilization: false
 
-# for EXP usage
+# batch sampler configs: stable nodes
+freeze_similarity: 0.9
+freeze_any: true
+freeze_window_size: 2
+
+# extra_config: ''
+# batch level output
 batch_level_log: false
 profile_stable: false
 adaptive_update: false

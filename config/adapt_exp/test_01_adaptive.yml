@@ -1,7 +1,6 @@
 # basic configs
 data: WIKI  # dataset name
-# config: config/eval/TGAT_lr_mod.yml   # path to config file
-config: config/eval/TGN_lr_mod.yml
+config: config/eval/TGAT_lr_mod.yml   # path to config file
 gpu: '0'  # which GPU to use
 model_name: ''  # name of stored model
 use_inductive: false
@@ -22,7 +21,7 @@ use_full_edge: false
 
 
 # batch sampler configs: basic
-mode: batch_stable_freezing  # baseline, batch_stable_freezing_large, batch_stable_freezing
+mode: baseline  # baseline, batch_stable_freezing_large, batch_stable_freezing
 node_count: 140 
 window_size: 10
 color_limit: -1
@@ -59,7 +58,7 @@ observe_batch_utilization: false
 # for EXP usage
 batch_level_log: false
 profile_stable: false
-adaptive_update: false
+adaptive_update: true
 adaptive_update_similarity: 0.9
 adaptive_update_window_size: 2
 adaptive_update_epoch: 1
