@@ -62,6 +62,7 @@ parser.add_argument('--extra_config', type=str, default='', help='path to extra 
 
 parser.add_argument('--logfile', type=str, default='test.log', help='Log file name')
 parser.add_argument('--post_sample_filter', action='store_true', help='whether to enable post-sample filter')
+parser.add_argument('--history', type=int, default=-1, help='sampling history (override the setting in config)')
 
 args=parser.parse_args()
 
@@ -155,6 +156,14 @@ if 'validation_batch_size' in train_param:
 else:
     val_batch_size = train_param['batch_size']
 
+if args.history != -1 and 'history' in sample_param:
+    sample_param['history'] = args.history
+    print("overriding history:", args.history)
+
+# If history > 1, we need a 'combine' in gnn_param.
+if 'history' in sample_param and sample_param['history'] > 1:
+    print("history > 1, set gnn_param[combine] to rnn")
+    gnn_param['combine'] = 'rnn'
 
 if args.epoch != -1:
     train_param['epoch'] = args.epoch
@@ -1160,6 +1169,10 @@ for e in range(train_param['epoch']):
                     node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                     if node_stable_flag is not None and args.batch_level_log:
                         print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
+                        # print("batch_level_log:", args.batch_level_log)
+                        # sys.exit(0)
+                    # else:
+                    #     print("node_stable_flag is None! mailbox: ", mailbox)
                     adaptive_updater.set_stable_record(node_stable_flag)
                 #########################################
 
@@ -1221,6 +1234,7 @@ for e in range(train_param['epoch']):
                         pos_root_end = root_nodes.shape[0] * 2 // 3
                         sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
                     else:
+                        # print("[PSF] node_stable_flag: ", node_stable_flag if args.post_sample_filter else None)
                         sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
                     ret = sampler.get_ret()
                     edges_sampled = sum(len(r.eid()) for r in ret)
@@ -1305,6 +1319,8 @@ for e in range(train_param['epoch']):
                 t_model_s = time.time()
                 optimizer.zero_grad()
                 rng = nvtx.start_range(message="train")
+                # print(len(mfgs), len(mfgs[0]))
+                # sys.exit(0)
                 pred_pos, pred_neg = model(mfgs)
                 loss = creterion(pred_pos, torch.ones_like(pred_pos))
                 loss += creterion(pred_neg, torch.zeros_like(pred_neg))

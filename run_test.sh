@@ -6,8 +6,15 @@ config=""
 suffix=""
 exp="both" # Default to 'both'
 
+train_simple_args=() # Initialize an empty array for arguments to train_simple.py
+
 while [[ "$#" -gt 0 ]]; do
     case $1 in
+        --) # Custom arguments for train_simple.py
+            shift
+            train_simple_args=("$@")
+            break
+            ;;
         --dataset) dataset="$2"; shift ;;
         --config) config="$2"; shift ;;
         --suffix) suffix="$2"; shift ;;
@@ -85,8 +92,10 @@ if [[ "$exp" == "base" || "$exp" == "both" ]]; then
     base_log_file="${results_dir}/${lower_dataset}_${lower_config}_base_${suffix}.log"
     base_output_log_file="${results_dir}/output_${lower_dataset}_${lower_config}_base_${suffix}.log"
 
-    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${base_log_file} 2>&1 | tee ${base_output_log_file}"
-    python train_simple.py --extra_config "${config_file}" --logfile "${base_log_file}" 2>&1 | tee -a "${base_output_log_file}"
+    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${base_log_file} ${train_simple_args[@]} 2>&1 | tee ${base_output_log_file}"
+    set -x
+    python train_simple.py --extra_config "${config_file}" --logfile "${base_log_file}" "${train_simple_args[@]}" 2>&1 | tee -a "${base_output_log_file}"
+    set +x
     echo "Baseline run completed. Logs: ${base_log_file}, ${base_output_log_file}"
 fi
 
@@ -96,8 +105,10 @@ if [[ "$exp" == "psfilter" || "$exp" == "both" ]]; then
     psfilter_log_file="${results_dir}/${lower_dataset}_${lower_config}_psfilter_${suffix}.log"
     psfilter_output_log_file="${results_dir}/output_${lower_dataset}_${lower_config}_psfilter_${suffix}.log"
 
-    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${psfilter_log_file} --post_sample_filter 2>&1 | tee ${psfilter_output_log_file}"
-    python train_simple.py --extra_config "${config_file}" --logfile "${psfilter_log_file}" --post_sample_filter 2>&1 | tee -a "${psfilter_output_log_file}"
+    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${psfilter_log_file} --post_sample_filter ${train_simple_args[@]} 2>&1 | tee ${psfilter_output_log_file}"
+    set -x
+    python train_simple.py --extra_config "${config_file}" --logfile "${psfilter_log_file}" --post_sample_filter "${train_simple_args[@]}" 2>&1 | tee -a "${psfilter_output_log_file}"
+    set +x
     echo "Post-Sample-Filter run completed. Logs: ${psfilter_log_file}, ${psfilter_output_log_file}"
 fi
 

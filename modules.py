@@ -50,7 +50,7 @@ class GeneralModel(torch.nn.Module):
             self.memory_updater(mfgs[0])
         out = list()
         for l in range(self.gnn_param['layer']):
-            for h in range(self.sample_param['history']):
+            for h in range(min(self.sample_param['history'], len(mfgs[l]))):
                 rst = self.layers['l' + str(l) + 'h' + str(h)](mfgs[l][h])
                 if 'time_transform' in self.gnn_param and self.gnn_param['time_transform'] == 'JODIE':
                     rst = self.layers['l0h' + str(h) + 't'](rst, mfgs[l][h].srcdata['mem_ts'], mfgs[l][h].srcdata['ts'])

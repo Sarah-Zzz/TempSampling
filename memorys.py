@@ -300,6 +300,10 @@ class MailBox():
                 b.srcdata['mem_ts'] = self.node_memory_ts[idx].cuda()
                 b.srcdata['mem_input'] = self.mailbox[idx].cuda().reshape(b.srcdata['ID'].shape[0], -1)
                 b.srcdata['mail_ts'] = self.mailbox_ts[idx].cuda()
+                # b.srcdata['mem'] = self.node_memory[idx]
+                # b.srcdata['mem_ts'] = self.node_memory_ts[idx]
+                # b.srcdata['mem_input'] = self.mailbox[idx].reshape(b.srcdata['ID'].shape[0], -1)
+                # b.srcdata['mail_ts'] = self.mailbox_ts[idx]
 
                 # b.srcdata['mem'] = self.node_memory[b.srcdata['ID'].long()].cuda()
                 # b.srcdata['mem_ts'] = self.node_memory_ts[b.srcdata['ID'].long()].cuda()

@@ -189,6 +189,7 @@ def prepare_input(mfgs, node_feats, edge_feats, combine_first=False, pinned=Fals
                         srch = edge_feats[idx].float()
                         # srch = edge_feats[b.edata['ID'].long()].float()
                         b.edata['f'] = srch.cuda()
+                        # b.edata['f'] = srch
     return mfgs
 
 def get_ids(mfgs, node_feats, edge_feats):

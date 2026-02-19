@@ -49,3 +49,8 @@ dist/
 build/
 out/
 *.log
+
+*.slurm
+slurm/
+*_slurm_*
+test*.sh

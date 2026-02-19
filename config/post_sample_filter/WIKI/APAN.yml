@@ -8,7 +8,7 @@ rand_edge_features: 0
 rand_node_features: 0
 eval_neg_samples: 1  # Note: changes test metric to AP+MRR
 ratio: 0.5
-epoch: 100
+# epoch: 100
 batch_size: -1
 lr_scale: true
 lr_scale_factor: 1.0
