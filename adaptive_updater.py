@@ -40,7 +40,7 @@ class Adaptive_Update_Controller():
         self.node_num = node_num
         self.freeze_threshold = freeze_threshold
         self.stable_num = 0
-        self.stable_record = np.zeros((node_num,), dtype=np.int8)
+        self.stable_record = None   # np.zeros((node_num,), dtype=np.int8)
         self.enable = False
 
     def reset(self):
@@ -49,9 +49,14 @@ class Adaptive_Update_Controller():
         This will set the stable record to all zeros and reset the stable number.
         """
         self.stable_num = 0
-        self.stable_record.fill(0)
+        if self.stable_record is None:
+            return
+        if isinstance(self.stable_record, np.ndarray):
+            self.stable_record.fill(0)
+        elif isinstance(self.stable_record, torch.Tensor):
+            self.stable_record.zero_()
 
-    def enable(self):
+    def set_enable(self):
         """
         Enable the controller.
         This will set the stable record to all zeros and reset the stable number.
@@ -59,7 +64,7 @@ class Adaptive_Update_Controller():
         self.reset()
         self.enable = True
     
-    def disable(self):
+    def set_disable(self):
         """
         Disable the controller.
         This will set the stable record to all ones and set the stable number to node_num.
@@ -82,8 +87,8 @@ class Adaptive_Update_Controller():
             stable_record (np.ndarray): A numpy array of shape [node_num] where each element is either 0 or 1.
                                         1 indicates the node is stable, 0 indicates it is unstable.
         """
-        if stable_record.shape[0] != self.node_num:
-            raise ValueError("Stable record size does not match node number.")
+        # if stable_record.shape[0] != self.node_num:
+        #     raise ValueError("Stable record size does not match node number.")
         self.stable_record = stable_record
 
     def get_stable_record(self):
@@ -100,6 +105,7 @@ class Adaptive_Update_Controller():
         Filter the row indices based on the stable record.
         Args:
             row_indices (pd.dataframe): A pandas dataframe containing the row indices to be filtered.
+            (add-on) you can also use self.stable_record as a indicator for stable node
         Returns:
             pd.DataFrame: A filtered dataframe containing only the stable nodes.
         """
@@ -109,7 +115,18 @@ class Adaptive_Update_Controller():
         # 2. Return a new dataframe with only the stable nodes.
         ##############################
 
-        raise NotImplementedError("Elastic row filter is not implemented yet.")
+        if self.stable_record is None:
+            return rows
+        # print(type(rows))
+        # print(rows[:5])
+        # src = rows['src'].astype(int).values
+        src = torch.from_numpy(rows['src'].values).long()
+        # dst = rows['dst'].astype(int).values
+        dst = torch.from_numpy(rows['dst'].values).long()
+        mask = (self.stable_record[src] == 0) | (self.stable_record[dst] == 0)
+        mask_np = mask.numpy()
+        filtered_rows = rows[mask_np]
+        return filtered_rows
 
     def elastic_filter(self, root_node):
         """

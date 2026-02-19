@@ -60,6 +60,8 @@ parser.add_argument('--profile_stable', action='store_true', help='whether to pr
 parser.add_argument('--adaptive_update', action='store_true', help='whether to use adaptive update based on node similarity')
 parser.add_argument('--extra_config', type=str, default='', help='path to extra config parameters for the trainer/batching, e.g., --extra_config "config/adapt_exp/WIKI/TGN.yml"')
 
+parser.add_argument('--logfile', type=str, default='test.log', help='Log file name')
+
 args=parser.parse_args()
 
 
@@ -170,6 +172,18 @@ SIM_WINDOW = args.freeze_window_size
 SIM_ANY = args.freeze_any
 MAX_BACTH_SIZE = args.max_batch_size
 NUM_COLORS = args.node_count if memory_param['type'] != 'none' else args.node_count
+
+print("=========== memory_param ================")
+print(memory_param)
+print("=========== sample_param ================")
+print(sample_param)
+print("=========== gnn_param ================")
+print(gnn_param)
+print("=========== train_param ================")
+print(train_param)
+print("=========================================")
+# sys.exit(0)
+
 total_coloring_time = 0
 if args.step_size == 0:
     num_edges = len(df)
@@ -493,7 +507,9 @@ total_train_time = 0
 # average_batch_size = 0
 total_batch_count = 0
 total_batch_sum = 0
-
+nodes_updated = 0
+nodes_reduced = 0
+time_updater = 0
 
 
 observing = args.observing
@@ -506,7 +522,8 @@ if args.batch_freeze:
     enable_batch_freeze()
 
 # node_number = int(max(np.array(df[:train_edge_end].src.values.tolist() + df[:train_edge_end].dst.values.tolist())))
-node_number = num_nodes if num_nodes is not None else int(max(np.array(df[:train_edge_end].src.values.tolist() + df[:train_edge_end].dst.values.tolist())))
+node_number = int(num_nodes) if num_nodes is not None else int(max(np.array(df[:train_edge_end].src.values.tolist() + df[:train_edge_end].dst.values.tolist())))
+print("node_number:", node_number)
 
 
 #########################################
@@ -517,6 +534,15 @@ if args.adaptive_update:
     adaptive_updater = Adaptive_Update_Controller(node_num=node_number,
                                       freeze_threshold=args.adaptive_update_similarity)
 #########################################
+
+log_file = open(args.logfile, 'w')
+# log_file.write('total_time, sample_time, prep_time, model_time, train_loss, val_ap, val_auc, val_loss, ave_val_loss, final_val_loss, prep_to_dgl_blocks, prep_pack_batch, prep_mailbox_updating\n')
+if args.mode == 'batch_stable_freezing_large':
+    log_file.write('chunk_train_time, chunk_coloring_time, time_updater_chunk, total_coloring_time,')
+    log_file.write('form_batch, coloring, model_training, recording_mem, others, sampling, updating_indptr, updating_stable_flag\n')
+elif args.mode == 'batch_stable_freezing':
+    log_file.write('form_batch, coloring, model_training, recording_mem, others, sampling, updating_indptr, updating_stable_flag\n')
+log_file.flush()
 
 if 'reorder' in train_param:
     # random chunk shceduling
@@ -531,7 +557,6 @@ if 'reorder' in train_param:
     for i in range(1, train_param['reorder']):
         additional_idx = np.zeros(train_param['batch_size'] // train_param['reorder'] * i) - 1
         group_indexes.append(np.concatenate([additional_idx, base_idx])[:base_idx.shape[0]])
-
 
 for e in range(train_param['epoch']):
     print('Epoch {:d}:'.format(e))
@@ -549,7 +574,7 @@ for e in range(train_param['epoch']):
     # EXPERIMENTAL: adaptive_updater---enable/disable adaptive updater
     ########################################
     if args.adaptive_update and adaptive_updater is not None:
-        adaptive_updater.enable()
+        adaptive_updater.set_enable()
     #########################################
 
 
@@ -684,12 +709,21 @@ for e in range(train_param['epoch']):
             #########################################
             # EXPERIMENTAL: adaptive_updater(reduce stable root nodes)---based on node stable flag, we can reduce the number of root nodes
             ########################################
+            nodes_updated += rows.shape[0]
             if args.adaptive_update and adaptive_updater is not None:
+                t_updater_s = time.time()
+                # print("before", rows.shape, end="")
+                n_nodes1 = rows.shape[0]
+                # rows = adaptive_updater.elastic_row_filer(rows)
                 try:
                     rows = adaptive_updater.elastic_row_filer(rows)
                 except Exception as e:
                     print("adaptive_updater error:", e)
                     rows = rows
+                # print(" --> after", rows.shape)
+                n_nodes2 = rows.shape[0]
+                nodes_reduced += (n_nodes1 - n_nodes2)
+                time_updater += time.time() - t_updater_s
             #########################################
 
             root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
@@ -859,6 +893,20 @@ for e in range(train_param['epoch']):
             print("****************node_stable_acc****************", node_stable_acc)
         print("***********************************************")
 
+        # total_time, sample_time, prep_time, model_time, train_loss, val_ap, val_auc, val_loss, ave_val_loss, final_val_loss, prep_to_dgl_blocks, prep_pack_batch, prep_mailbox_updating
+        # form_batch, coloring, model_training, recording_mem, others, sampling, updating_indptr, updating_stable_flag
+        log_file.write('{:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n'.format(
+            color_time_breakdown["forming_batch"],
+            color_time_breakdown["coloring"],
+            color_time_breakdown["model training"],
+            color_time_breakdown["record memory"],
+            color_time_breakdown["others"],
+            batching_time_breakdown["sampling"],
+            batching_time_breakdown["updating_indptr"],
+            batching_time_breakdown["updating_stable_flag"]
+        ))
+        log_file.flush()
+
         if args.observing and SAVE_COUNT:
             batch_max_color_counts = np.array(batch_max_color_counts)
             batch_max_color_counts_total[e] = batch_max_color_counts
@@ -1003,6 +1051,7 @@ for e in range(train_param['epoch']):
         for i in range(chunk_num):
             total_train_time_chunk = 0
             total_coloring_time_chunk = 0
+            time_updater_chunk = 0
             st_row = i * chunk_size
             ed_row = min((i+1) * chunk_size, train_edge_end)
             print("="*20, "chunk", i, "start row", st_row, "end row", ed_row, "="*20)
@@ -1094,12 +1143,28 @@ for e in range(train_param['epoch']):
                 #########################################
                 # EXPERIMENTAL: adaptive_updater(reduce stable root nodes)---based on node stable flag, we can reduce the number of root nodes
                 ########################################
+                nodes_updated += rows.shape[0]
                 if args.adaptive_update and adaptive_updater is not None:
+                    t_updater_s = time.time()
+                    # print("before", rows.shape, end="")
+                    n_nodes1 = rows.shape[0]
                     try:
                         rows = adaptive_updater.elastic_row_filer(rows)
                     except Exception as e:
                         print("adaptive_updater error:", e)
                         rows = rows
+                    # print(" --> after", rows.shape)
+                    n_nodes2 = rows.shape[0]
+                    nodes_reduced += (n_nodes1 - n_nodes2)
+                    t_updater = time.time() - t_updater_s
+                    time_updater_chunk += t_updater
+                    time_updater += t_updater
+                # if args.adaptive_update and adaptive_updater is not None:
+                #     try:
+                #         rows = adaptive_updater.elastic_row_filer(rows)
+                #     except Exception as e:
+                #         print("adaptive_updater error:", e)
+                #         rows = rows
                 #########################################
                 root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
                 ts = np.concatenate([rows.time.values, rows.time.values, rows.time.values]).astype(np.float32)
@@ -1213,9 +1278,27 @@ for e in range(train_param['epoch']):
                 print("node_stable_ratio", node_stable / node_check, "event_stable_ratio", event_stable / event_check, "total_check", event_check, "break_point", event_check - event_stable)
                 print("node_stable", node_stable, "node_check", node_check, "event_stable", event_stable, "event_check", event_check)
 
-            print('\tChunk total training time:{:.2f}s, chunk coloring time {}, total coloring time {}'.format(total_train_time_chunk, total_coloring_time_chunk, total_coloring_time))
+            print('\tChunk total training time:{:.2f}s, chunk coloring time {}, updater_time_chunk {}, total coloring time {}'.format(total_train_time_chunk, total_coloring_time_chunk, time_updater_chunk, total_coloring_time))
             print("\tform_batch time: {:.2f}s, coloring time: {:.2f}s, model training time: {:.2f}s, recording mem time: {:.2f}s, other time: {:.2f}s".format(color_time_breakdown["forming_batch"], color_time_breakdown["coloring"], color_time_breakdown["model training"], color_time_breakdown["record memory"], color_time_breakdown["others"]))
             print("\tsampling time: {:.2f}s, updating indptr time: {:.2f}s, updating stable flag time: {:.2f}s".format(batching_time_breakdown["sampling"], batching_time_breakdown["updating_indptr"], batching_time_breakdown["updating_stable_flag"]))
+
+            # chunk_train_time, chunk_coloring_time, total_coloring_time,
+            # form_batch, coloring, model_training, recording_mem, others, sampling, updating_indptr, updating_stable_flag
+            log_file.write('{:.2f}, {}, {}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}\n'.format(
+                total_train_time_chunk,
+                total_coloring_time_chunk,
+                time_updater_chunk,
+                total_coloring_time,
+                color_time_breakdown["forming_batch"],
+                color_time_breakdown["coloring"],
+                color_time_breakdown["model training"],
+                color_time_breakdown["record memory"],
+                color_time_breakdown["others"],
+                batching_time_breakdown["sampling"],
+                batching_time_breakdown["updating_indptr"],
+                batching_time_breakdown["updating_stable_flag"]
+            ))
+        log_file.flush()
     else:
         # for i, rows in df[:train_edge_end].groupby(group_indexes[random.randint(0, len(group_indexes) - 1)]):
         for i, rows in df[:train_edge_end].groupby(group_idx):
@@ -1338,6 +1421,7 @@ for e in range(train_param['epoch']):
         break
 
     ap, auc = eval('val')
+    print(e, ap, auc)
     if e > 2 and ap > best_ap:
         best_e = e
         best_ap = ap
@@ -1348,7 +1432,21 @@ for e in range(train_param['epoch']):
     print('\ttotal time:{:.2f}s sample time:{:.2f}s prep time:{:.2f}s model time:{:.2f}s'.format(time_tot, time_sample, time_prep, time_model))
     print('\tprep time details: to_dgl_blocks:{:.2f}s pack_batch:{:.2f}s mailbox_updating:{:.2f}s'.format(prep_time_breakdown["to_dgl_blocks"], prep_time_breakdown["pack_batch"], prep_time_breakdown["mailbox_updating"]))
     # batch_latency.append(time_tot)
-    
+
+    # total_time, sample_time, prep_time, model_time, train_loss, val_ap, val_auc, val_loss, ave_val_loss, final_val_loss, prep_to_dgl_blocks, prep_pack_batch, prep_mailbox_updating
+    # log_file.write('{:.2f}, {:.2f}, {:.2f}, {:.2f}, {:.4f}, {:4f}, {:4f}, {:4f}, {:4f}, {:4f}, {:.2f}, {:.2f}, {:.2f}\n'.format(
+    #     time_tot, time_sample, time_prep, time_model,
+    #     total_loss,
+    #     ap,
+    #     auc,
+    #     sum(val_losses),
+    #     sum(val_losses) / len(val_losses),
+    #     val_losses[-1],
+    #     prep_time_breakdown["to_dgl_blocks"],
+    #     prep_time_breakdown["pack_batch"],
+    #     prep_time_breakdown["mailbox_updating"]
+    # ))
+    # log_file.flush()
 
 
     if e != 0:
@@ -1490,9 +1588,26 @@ print("data", args.data,
 #     print('\ttest AP:{:4f}  test MRR:{:4f}'.format(ap, auc))
 # else:
 #     print('\ttest AP:{:4f}  test AUC:{:4f}'.format(ap, auc))
+log_file.write("\n\n")
 if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_large':
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
+    log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}\n'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
 else:
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}'.format(total_train_time, total_batch_sum / total_batch_count))
+    log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}\n'.format(total_train_time, total_batch_sum / total_batch_count))
+
 print('\tBest epoch:{:d}  Best AP:{:4f}  Best AUC:{:4f}'.format(best_e, best_ap, best_auc), 
       "ave val loss {:.4f}, min val loss {:.4f}".format(sum(val_losses) / len(val_losses), min(val_losses)))
+
+print("Nodes updated:", nodes_updated)
+print("Nodes filtered:", nodes_reduced)
+print("time_updater: ", time_updater)
+log_file.write('Best epoch:{:d}, Best AP:{:4f}, Best AUC:{:4f}, ave val loss {:.4f}, min val loss {:.4f}\n'.format(
+    best_e, best_ap, best_auc,
+    sum(val_losses) / len(val_losses),
+    min(val_losses)))
+log_file.write('Nodes updated: {:d}\n'.format(nodes_updated))
+log_file.write('Nodes filtered: {:d}\n'.format(nodes_reduced))
+log_file.write('time_updater: {}\n'.format(time_updater))
+
+log_file.close()
