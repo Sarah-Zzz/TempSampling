@@ -65,6 +65,7 @@ def to_dgl_blocks(ret, hist, reverse=False, cuda=True):
     mfgs = list()
     for r in ret:
         if not reverse:
+            print(f"[PSF] num_src_nodes={r.dim_in()}, num_dst_nodes={r.dim_out()}, num_nodes={len(r.nodes())}")
             b = dgl.create_block((r.col(), r.row()), num_src_nodes=r.dim_in(), num_dst_nodes=r.dim_out())
             b.srcdata['ID'] = torch.from_numpy(r.nodes())
             b.edata['dt'] = torch.from_numpy(r.dts())[b.num_dst_nodes():]

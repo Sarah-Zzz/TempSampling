@@ -61,6 +61,7 @@ parser.add_argument('--adaptive_update', action='store_true', help='whether to u
 parser.add_argument('--extra_config', type=str, default='', help='path to extra config parameters for the trainer/batching, e.g., --extra_config "config/adapt_exp/WIKI/TGN.yml"')
 
 parser.add_argument('--logfile', type=str, default='test.log', help='Log file name')
+parser.add_argument('--post_sample_filter', action='store_true', help='whether to enable post-sample filter')
 
 args=parser.parse_args()
 
@@ -182,6 +183,7 @@ print(gnn_param)
 print("=========== train_param ================")
 print(train_param)
 print("=========================================")
+print("post-sample filter: ", args.post_sample_filter)
 # sys.exit(0)
 
 total_coloring_time = 0
@@ -714,12 +716,13 @@ for e in range(train_param['epoch']):
                 t_updater_s = time.time()
                 # print("before", rows.shape, end="")
                 n_nodes1 = rows.shape[0]
+                # row filter is disabled, but we need the node_stable_flag
                 # rows = adaptive_updater.elastic_row_filer(rows)
-                try:
-                    rows = adaptive_updater.elastic_row_filer(rows)
-                except Exception as e:
-                    print("adaptive_updater error:", e)
-                    rows = rows
+                # try:
+                #     rows = adaptive_updater.elastic_row_filer(rows)
+                # except Exception as e:
+                #     print("adaptive_updater error:", e)
+                #     rows = rows
                 # print(" --> after", rows.shape)
                 n_nodes2 = rows.shape[0]
                 nodes_reduced += (n_nodes1 - n_nodes2)
@@ -759,6 +762,35 @@ for e in range(train_param['epoch']):
                 else:
                     sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
+
+                # ====================================
+                # TODO(sarahz): 20260112 add post-sample filter
+                # ====================================
+                if args.post_sample_filter:
+                    keeps = [{} for _ in range(len(ret))]
+                    for idx, r in enumerate(ret):
+                        keep = {int(e): False for e in r.eid()}
+                        eids = r.eid()
+                        nodes = r.nodes()
+                        row = r.row()
+                        col = r.col()
+                        for i in range(len(eids)):
+                            eid = int(eids[i])
+                            if keep[eid]:
+                                continue
+                            # nodes[col[i]] -> nodes[row[i]]
+                            # b is the destination node
+                            # event eid[i], row[i], col[i], ts[i], dts[i]
+                            a = nodes[col[i]]
+                            b = nodes[row[i]]                            
+                            if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
+                                # dst (root node) is not stable, keep the event
+                                keep[eid] = True
+                        keeps[idx] = keep
+
+                    sampler.filter(keeps)
+                    ret = sampler.get_ret()
+
                 # time_sample += ret[0].sample_time()
                 time_sample += time.time() - t_tot_s
             t_prep_s = time.time()
@@ -1148,11 +1180,12 @@ for e in range(train_param['epoch']):
                     t_updater_s = time.time()
                     # print("before", rows.shape, end="")
                     n_nodes1 = rows.shape[0]
-                    try:
-                        rows = adaptive_updater.elastic_row_filer(rows)
-                    except Exception as e:
-                        print("adaptive_updater error:", e)
-                        rows = rows
+                    # row filter is disabled, but we need the node_stable_flag
+                    # try:
+                    #     rows = adaptive_updater.elastic_row_filer(rows)
+                    # except Exception as e:
+                    #     print("adaptive_updater error:", e)
+                    #     rows = rows
                     # print(" --> after", rows.shape)
                     n_nodes2 = rows.shape[0]
                     nodes_reduced += (n_nodes1 - n_nodes2)
@@ -1177,6 +1210,63 @@ for e in range(train_param['epoch']):
                     else:
                         sampler.sample(root_nodes, ts)
                     ret = sampler.get_ret()
+
+                    # ====================================
+                    # TODO(sarahz): 20260112 add post-sample filter
+                    # ====================================
+                    # ret = sampler.get_ret() --> std::vector<TemporalGraphBlock> ret;
+                    # class TemporalGraphBlock
+                    # {
+                    #     public:
+                    #         std::vector<NodeIDType> row;
+                    #         std::vector<NodeIDType> col;
+                    #         std::vector<EdgeIDType> eid;
+                    #         std::vector<TimeStampType> ts;
+                    #         std::vector<TimeStampType> dts;
+                    #         std::vector<NodeIDType> nodes;
+                    #         NodeIDType dim_in, dim_out;
+                    #         double ptr_time = 0;
+                    #         double search_time = 0;
+                    #         double sample_time = 0;
+                    #         double tot_time = 0;
+                    #         double coo_time = 0;
+                    # We have node_stable_flag:
+                    # adaptive_updater.set_stable_record(node_stable_flag)
+                    # mask = (self.stable_record[src] == 0) | (self.stable_record[dst] == 0)
+                    # For e in 1,2,3,...E
+                    #     Keep[e] = False
+                    #     If nodes[col[e]] is not stable:
+                    #     # if root node is unstable, we keep it and all its neighbors	
+                    #         Keep all
+                    #         Break
+                    #     For b in all possible (a,b)---edges to b
+                    #     # if the sampled source node is unstable, we keep root nodes and the event	
+                    #         Keep event
+                    if args.post_sample_filter:
+                        keeps = [{} for _ in range(len(ret))]
+                        for idx, r in enumerate(ret):
+                            keep = {int(e): False for e in r.eid()}
+                            eids = r.eid()
+                            nodes = r.nodes()
+                            row = r.row()
+                            col = r.col()
+                            for i in range(len(eids)):
+                                eid = int(eids[i])
+                                if keep[eid]:
+                                    continue
+                                # nodes[col[i]] -> nodes[row[i]]
+                                # b is the destination node
+                                # event eid[i], row[i], col[i], ts[i], dts[i]
+                                a = nodes[col[i]]
+                                b = nodes[row[i]]                            
+                                if node_stable_flag[b] == 0 or node_stable_flag[a] == 0:
+                                    # dst (root node) is not stable, keep the event
+                                    keep[eid] = True
+                            keeps[idx] = keep
+
+                        sampler.filter(keeps)
+                        ret = sampler.get_ret()
+
                     # time_sample += ret[0].sample_time()
                     time_sample += time.time() - t_tot_s
                 t_prep_s = time.time()

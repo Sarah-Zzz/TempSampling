@@ -126,6 +126,101 @@ class ParallelSampler
             }
         }
 
+        void filter(py::list keeps) {
+          if (keeps.size() != ret.size()) {
+            throw std::runtime_error(
+                "Length of keeps list must be equal to length of return list");
+          }
+
+          for (size_t i = 0; i < ret.size(); ++i) {
+            auto &block = ret[i];
+            if (block.eid.empty()) {
+              continue;
+            }
+            py::dict keep_dict = keeps[i].cast<py::dict>();
+
+            std::vector<bool> keep_mask(block.eid.size(), false);
+            for (size_t j = 0; j < block.eid.size(); ++j) {
+              EdgeIDType current_eid = block.eid[j];
+              if (keep_dict.contains(current_eid)) {
+                if (keep_dict[py::cast(current_eid)].cast<bool>()) {
+                  keep_mask[j] = true;
+                }
+              }
+            }
+
+            std::vector<NodeIDType> new_row;
+            std::vector<NodeIDType> new_col;
+            std::vector<EdgeIDType> new_eid;
+            std::vector<TimeStampType> new_ts;
+            std::vector<TimeStampType> new_dts;
+
+            size_t num_edges = block.row.size();
+
+            for (size_t j = 0; j < num_edges; ++j) {
+              if (keep_mask[j]) {
+                new_row.push_back(block.row[j]);
+                new_col.push_back(block.col[j]);
+                new_eid.push_back(block.eid[j]);
+                new_ts.push_back(block.ts[j]);
+                new_dts.push_back(block.dts[j]);
+                // if (j < block.ts.size())
+                //   new_ts.push_back(block.ts[j]);
+                // if (j < block.dts.size())
+                //   new_dts.push_back(block.dts[j]);
+              }
+            }
+            std::cout << "[PSF] number_of_edges: " << new_eid.size() << std::endl;
+
+            block.row = new_row;
+            block.col = new_col;
+            block.eid = new_eid;
+            block.ts = new_ts;
+            block.dts = new_dts;
+
+            std::set<NodeIDType> live_node_indices;
+            for (const auto &node_idx : block.row) {
+              live_node_indices.insert(node_idx);
+            }
+            for (const auto &node_idx : block.col) {
+              live_node_indices.insert(node_idx);
+            }
+
+            std::vector<NodeIDType> final_nodes;
+            std::map<NodeIDType, NodeIDType> old_to_new_map;
+            final_nodes.reserve(live_node_indices.size());
+
+            NodeIDType new_node_idx_counter = 0;
+
+            std::vector<NodeIDType> sorted_live_node_indices(
+                live_node_indices.begin(), live_node_indices.end());
+
+            for (NodeIDType old_node_idx : sorted_live_node_indices) {
+              if (old_node_idx < block.nodes.size()) {
+                final_nodes.push_back(block.nodes[old_node_idx]);
+                old_to_new_map[old_node_idx] = new_node_idx_counter++;
+              }
+            }
+
+            for (auto &node_idx : block.row) {
+              node_idx = old_to_new_map[node_idx];
+            }
+            for (auto &node_idx : block.col) {
+              node_idx = old_to_new_map[node_idx];
+            }
+
+            block.nodes = final_nodes;
+
+            block.dim_in = block.nodes.size();
+
+            std::set<NodeIDType> unique_row_nodes;
+            for (const auto &node_idx : block.row) {
+              unique_row_nodes.insert(node_idx);
+            }
+            block.dim_out = unique_row_nodes.size();
+          }
+        }
+
         inline void add_neighbor(std::vector<NodeIDType> *_row, std::vector<NodeIDType> *_col,
                                  std::vector<EdgeIDType> *_eid, std::vector<TimeStampType> *_ts,
                                  std::vector<TimeStampType> *_dts, std::vector<NodeIDType> *_nodes, 
@@ -196,6 +291,7 @@ class ParallelSampler
             }
             _ret.dim_in = _ret.nodes.size();
             _ret.dim_out = cum_row.back();
+            std::cout << "[PSF] combine_coo: dim_in=" << _ret.dim_in << " dim_out=" << _ret.dim_out << std::endl;
         }
 
         void sample_layer(std::vector<NodeIDType> &_root_nodes, std::vector<TimeStampType> &_root_ts,
@@ -371,6 +467,9 @@ inline py::array vec2npy(const std::vector<T> &vec)
     // return py::array(vec.size(), vec.data());
 }
 
+#include <set>
+#include <map>
+
 PYBIND11_MODULE(sampler_core, m)
 {
     py::class_<TemporalGraphBlock>(m, "TemporalGraphBlock")
@@ -398,5 +497,6 @@ PYBIND11_MODULE(sampler_core, m)
                       int, TimeStampType>())
         .def("sample", &ParallelSampler::sample)
         .def("reset", &ParallelSampler::reset)
+        .def("filter", &ParallelSampler::filter)
         .def("get_ret", [](const ParallelSampler &ps) { return ps.ret; });
 }
