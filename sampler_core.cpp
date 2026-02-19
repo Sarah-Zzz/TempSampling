@@ -221,7 +221,7 @@ class ParallelSampler
           }
         }
 
-        inline void add_neighbor(std::vector<NodeIDType> *_row, std::vector<NodeIDType> *_col,
+        inline bool add_neighbor(std::vector<NodeIDType> *_row, std::vector<NodeIDType> *_col,
                                  std::vector<EdgeIDType> *_eid, std::vector<TimeStampType> *_ts,
                                  std::vector<TimeStampType> *_dts, std::vector<NodeIDType> *_nodes, 
                                  EdgeIDType &k, TimeStampType &src_ts, int &row_id,
@@ -230,7 +230,7 @@ class ParallelSampler
             auto stable_flag_data = node_stable_flag.unchecked<1>();
             if (stable_flag_data(indices[k]) && stable_flag_data(src_global_id))
             {
-                return; // Skip adding this edge
+                return false; // Skip adding this edge
             }
             _row->push_back(row_id);
             _col->push_back(_nodes->size());
@@ -241,6 +241,7 @@ class ParallelSampler
                 _ts->push_back(ts[k]);
             _dts->push_back(src_ts - ts[k]);
             _nodes->push_back(indices[k]);
+            return true;
             // _row.push_back(0);
             // _col.push_back(0);
             // _eid.push_back(0);
@@ -394,6 +395,7 @@ class ParallelSampler
                         }
                         // std::cout << n << " " << s_search << " " << e_search << std::endl;
                         double t_sample_s = omp_get_wtime();
+                        bool neighbor_added = false;
                         if ((recent) || (e_search - s_search < neighs))
                         {                            
                             // no sampling, pick recent neighbors
@@ -401,7 +403,7 @@ class ParallelSampler
                                  k > std::max(s_search, e_search - neighs);
                                  k--) {
                               if (ts[k] < nts + offset - 1e-7f) {
-                                add_neighbor(_row[tid], _col[tid], _eid[tid],
+                                neighbor_added = add_neighbor(_row[tid], _col[tid], _eid[tid],
                                              _ts[tid], _dts[tid], _nodes[tid],
                                              k, nts, _out_node[tid],
                                              node_stable_flag, src_global_id);
@@ -415,14 +417,16 @@ class ParallelSampler
                             {
                                 EdgeIDType picked = s_search + rand_r(&loc_seed) % (e_search - s_search + 1);
                                 if (ts[picked] < nts + offset - 1e-7f) {
-                                  add_neighbor(_row[tid], _col[tid], _eid[tid],
+                                  neighbor_added = add_neighbor(_row[tid], _col[tid], _eid[tid],
                                                _ts[tid], _dts[tid], _nodes[tid],
                                                picked, nts, _out_node[tid],
                                                node_stable_flag, src_global_id);
                                 }
                             }
                         }
-                        _out_node[tid] += 1;
+                        if (neighbor_added) {
+                            _out_node[tid] += 1;
+                        }
                         if (tid == 0)
                             ret[0].sample_time += omp_get_wtime() - t_sample_s;
                     }
