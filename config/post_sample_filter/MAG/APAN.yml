@@ -1,5 +1,5 @@
 # basic configs
-data: GDELT  # dataset name
+data: MAG  # dataset name
 config: config/eval/APAN_lr_mod_large.yml  # path to config file
 gpu: '0'  # which GPU to use
 model_name: ''  # name of stored model

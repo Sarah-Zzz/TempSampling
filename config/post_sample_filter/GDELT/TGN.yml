@@ -8,7 +8,7 @@ rand_edge_features: 0
 rand_node_features: 0
 eval_neg_samples: 1  # Note: changes test metric to AP+MRR
 ratio: 0.5
-epoch: 15
+# epoch: 15
 batch_size: -1
 lr_scale: true
 lr_scale_factor: 1.0
@@ -59,7 +59,8 @@ freeze_window_size: 2
 # batch level output
 batch_level_log: false
 profile_stable: false
-adaptive_update: false
+# still adaptive updater to get node_stable_flag
+adaptive_update: true
 adaptive_update_similarity: 0.9
 adaptive_update_window_size: 2
 adaptive_update_epoch: 1
