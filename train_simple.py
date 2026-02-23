@@ -574,6 +574,7 @@ if 'reorder' in train_param:
         additional_idx = np.zeros(train_param['batch_size'] // train_param['reorder'] * i) - 1
         group_indexes.append(np.concatenate([additional_idx, base_idx])[:base_idx.shape[0]])
 
+event_remain_indices = None
 for e in range(train_param['epoch']):
     print('Epoch {:d}:'.format(e))
     print("check memory usage before each epoch...")
@@ -1088,16 +1089,26 @@ for e in range(train_param['epoch']):
         2. run the table coloring for each chunk in sequence
         3. form batch within each chunk
         """
+        if event_remain_indices is not None:
+            training_df = df.iloc[event_remain_indices].reset_index(drop=False)
+            print(f"Epoch {e}: Using {len(training_df)} events from previous epoch for data sieving.")
+        else:
+            # keep original index for data sieving
+            training_df = df[:train_edge_end].reset_index(drop=False)
+
+        current_train_edge_end = len(training_df)
+        next_epoch_event_flag = torch.zeros(df.shape[0], dtype=torch.bool, device='cpu')
+
         if mailbox is not None:
             mailbox.set_stablize_recorder(window_size=SIM_WINDOW)
         # chunk_size = 10000000 # 10 million
         # chunk_num = train_edge_end // chunk_size
         # chunk_num = args.chunk_num
         chunk_size = train_param['batch_size'] * 100
-        chunk_num = (train_edge_end + chunk_size - 1) // chunk_size
+        chunk_num = (current_train_edge_end + chunk_size - 1) // chunk_size
         batch_count = 0
-        final_group_idx = np.zeros(train_edge_end)
-        training_df = df[:train_edge_end]
+        final_group_idx = np.zeros(current_train_edge_end)
+        # training_df = df[:train_edge_end] # now handled above
         cur_batch = 0
 
         print("chunk size", chunk_size, "chunk num", chunk_num)
@@ -1107,7 +1118,7 @@ for e in range(train_param['epoch']):
             total_coloring_time_chunk = 0
             time_updater_chunk = 0
             st_row = i * chunk_size
-            ed_row = min((i+1) * chunk_size, train_edge_end)
+            ed_row = min((i+1) * chunk_size, current_train_edge_end)
             print("="*20, "chunk", i, "start row", st_row, "end row", ed_row, "="*20)
 
             if args.sampler_for_each_chunk:
@@ -1361,6 +1372,10 @@ for e in range(train_param['epoch']):
                     stable_flag = mailbox.get_full_node_stable_flag()
                     prep_time_breakdown["mailbox_updating"] += time.time() - t_prep_mailbox_s
 
+                    stable_mask = (stable_flag[rows.src.values] == 1) & (stable_flag[rows.dst.values] == 1)
+                    original_indices_of_stable_events = rows['index'].values[stable_mask.cpu().numpy()]
+                    next_epoch_event_flag[original_indices_of_stable_events] = True
+
                     t_forming_batch_s = time.time()
                     # print("in memory", model.memory_updater.last_updated_nid.shape, "root_nodes", root_nodes.shape, "stable_flag", stable_flag)
                     # input("Press Enter to continue...")
@@ -1541,6 +1556,10 @@ for e in range(train_param['epoch']):
         print("max max", np.max(moving_node_usage_stats["max"][:-1]), "min max", np.min(moving_node_usage_stats["max"][:-1]), "mean max", np.mean(moving_node_usage_stats["max"][:-1]))
         print("exiting observing mode...")
         break
+
+    if args.mode == 'batch_stable_freezing_large':
+        event_remain_indices = torch.where(next_epoch_event_flag)[0].cpu().numpy()
+        print(f"Epoch {e}: {len(event_remain_indices)} events remain for the next epoch.")
 
     ap, auc = eval('val')
     print(e, ap, auc)
