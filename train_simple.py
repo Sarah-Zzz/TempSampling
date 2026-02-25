@@ -708,7 +708,7 @@ for e in range(train_param['epoch']):
             t_training_start = time.time()
             
             # update batch count
-            rows = df.iloc[ptr_start:ptr_end]
+            rows = training_df.iloc[ptr_start:ptr_end]
             final_group_idx[ptr_start:ptr_end] = batch_count
             batch_count += 1
             total_batch_count += 1
@@ -1195,7 +1195,7 @@ for e in range(train_param['epoch']):
                 t_training_start = time.time()
                 
                 # update batch count
-                rows = df.iloc[ptr_start:ptr_end]
+                rows = training_df.iloc[ptr_start:ptr_end]
                 final_group_idx[ptr_start:ptr_end] = batch_count
                 batch_count += 1
                 total_batch_count += 1
