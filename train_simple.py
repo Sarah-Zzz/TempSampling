@@ -519,6 +519,7 @@ train_edge_index = np.stack((src_index, dst_index))
 
 
 total_train_time = 0
+tot_time_sieving = 0
 # average_batch_size = 0
 total_batch_count = 0
 total_batch_sum = 0
@@ -1091,15 +1092,19 @@ for e in range(train_param['epoch']):
         3. form batch within each chunk
         """
         if args.data_sieving and event_remain_indices is not None:
+            t_sieve_batch_start = time.time()
             training_df = df.iloc[event_remain_indices].reset_index(drop=False)
             print(f"Epoch {e}: Using {len(training_df)} events from previous epoch for data sieving.")
+            tot_time_sieving += time.time() - t_sieve_batch_start
         else:
             # keep original index for data sieving
             training_df = df[:train_edge_end].reset_index(drop=False)
 
         current_train_edge_end = len(training_df)
         if args.data_sieving:
-            next_epoch_event_flag = torch.zeros(df.shape[0], dtype=torch.bool, device='cpu')
+            t_sieve_batch_start = time.time()
+            next_epoch_event_flag = torch.ones(df.shape[0], dtype=torch.bool, device='cpu')
+            tot_time_sieving += time.time() - t_sieve_batch_start
 
         if mailbox is not None:
             mailbox.set_stablize_recorder(window_size=SIM_WINDOW)
@@ -1375,9 +1380,13 @@ for e in range(train_param['epoch']):
                     prep_time_breakdown["mailbox_updating"] += time.time() - t_prep_mailbox_s
 
                     if args.data_sieving:
+                        t_sieve_batch_start = time.time()
+                        # Sieving: Keep events that are UNSTABLE (at least one node still changing)
+                        # Mark STABLE events as False in the flag.
                         stable_mask = (stable_flag[rows.src.values] == 1) & (stable_flag[rows.dst.values] == 1)
                         original_indices_of_stable_events = rows['index'].values[stable_mask.cpu().numpy()]
-                        next_epoch_event_flag[original_indices_of_stable_events] = True
+                        next_epoch_event_flag[original_indices_of_stable_events] = False
+                        tot_time_sieving += time.time() - t_sieve_batch_start
 
                     t_forming_batch_s = time.time()
                     # print("in memory", model.memory_updater.last_updated_nid.shape, "root_nodes", root_nodes.shape, "stable_flag", stable_flag)
@@ -1561,7 +1570,11 @@ for e in range(train_param['epoch']):
         break
 
     if args.data_sieving and args.mode == 'batch_stable_freezing_large':
+        t_sieve_end_start = time.time()
+        # print("next_epoch_event_flag:", next_epoch_event_flag.shape)
         event_remain_indices = torch.where(next_epoch_event_flag)[0].cpu().numpy()
+        # print("event_remain_indices:", event_remain_indices)
+        tot_time_sieving += time.time() - t_sieve_end_start
         print(f"Epoch {e}: {len(event_remain_indices)} events remain for the next epoch.")
 
     ap, auc = eval('val')
@@ -1735,7 +1748,9 @@ print("data", args.data,
 log_file.write("\n\n")
 if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_large':
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
+    print('\tsieving time {:.2f}s'.format(tot_time_sieving))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}\n'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
+    log_file.write('\tsieving time {:.2f}s\n'.format(tot_time_sieving))
     print('\ttotal_edges_sampled: {}'.format(total_edges_sampled))
     log_file.write('\ttotal_edges_sampled: {}\n'.format(total_edges_sampled))
 else:
