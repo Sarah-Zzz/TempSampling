@@ -66,6 +66,8 @@ parser.add_argument('--history', type=int, default=-1, help='sampling history (o
 
 args=parser.parse_args()
 
+max_bs_from_cmdline = args.max_batch_size
+print("max_batch_size from command line:", max_bs_from_cmdline)
 
 # TRAIN_SIMPLE: use yaml config file to override parameters
 if args.extra_config != '':
@@ -181,6 +183,9 @@ SIM_THRESHOLD = args.freeze_similarity
 SIM_WINDOW = args.freeze_window_size
 SIM_ANY = args.freeze_any
 MAX_BACTH_SIZE = args.max_batch_size
+print("max_batch_size:", args.max_batch_size)
+MAX_BACTH_SIZE = max_bs_from_cmdline
+print("max_batch_size overriden by command line:", MAX_BACTH_SIZE)
 NUM_COLORS = args.node_count if memory_param['type'] != 'none' else args.node_count
 
 print("=========== memory_param ================")
@@ -1174,6 +1179,12 @@ for e in range(train_param['epoch']):
                     # else:
                     #     print("node_stable_flag is None! mailbox: ", mailbox)
                     adaptive_updater.set_stable_record(node_stable_flag)
+                    if node_stable_flag is not None:
+                        num_stable = torch.sum(node_stable_flag).item()
+                        total_nodes = node_stable_flag.shape[0]
+                        print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(total_nodes, num_stable, (num_stable / total_nodes) * 100))
+                    else:
+                        print("node_stable_flag is None")
                 #########################################
 
 
@@ -1306,6 +1317,7 @@ for e in range(train_param['epoch']):
                     mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                 else:
                     mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+                    # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_prepare_s = time.time()
                 mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)

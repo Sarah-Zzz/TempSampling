@@ -31,6 +31,9 @@ AUC=$(grep -o "Best AUC:[0-9.]*" "$INPUT_FILE" | tail -n 1 | cut -d':' -f2)
 # "ave val loss" are three words, so the number is the 4th field in the matched string
 LOSS=$(grep -o "ave val loss [0-9.]*" "$INPUT_FILE" | tail -n 1 | awk '{print $4}')
 
+# min val loss
+MINLOSS=$(grep -o "min val loss [0-9.]*" "$INPUT_FILE" | tail -n 1 | awk '{print $4}')
+
 # Print results
 # echo "Epoch: $EPOCH"
 # echo "Total Training Time: $TRAIN_TIME"
@@ -43,3 +46,4 @@ echo "$TRAIN_TIME"
 echo "$EDGES"
 echo "$AUC"
 echo "$LOSS"
+echo "$MINLOSS"
