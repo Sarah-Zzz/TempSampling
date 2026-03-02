@@ -92,8 +92,8 @@ if [[ "$exp" == "base" || "$exp" == "both" ]]; then
     base_log_file="${results_dir}/${lower_dataset}_${lower_config}_base_${suffix}.log"
     base_output_log_file="${results_dir}/output_${lower_dataset}_${lower_config}_base_${suffix}.log"
 
-    date | tee -a "${base_output_log_file}"
-    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${base_log_file} ${train_simple_args[@]} 2>&1 | tee ${base_output_log_file}"
+    date | tee "${base_output_log_file}"
+    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${base_log_file} ${train_simple_args[@]} 2>&1 | tee -a ${base_output_log_file}"
     set -x
     python train_simple.py --extra_config "${config_file}" --logfile "${base_log_file}" "${train_simple_args[@]}" 2>&1 | tee -a "${base_output_log_file}"
     set +x
@@ -107,8 +107,8 @@ if [[ "$exp" == "psfilter" || "$exp" == "both" ]]; then
     psfilter_log_file="${results_dir}/${lower_dataset}_${lower_config}_psfilter_${suffix}.log"
     psfilter_output_log_file="${results_dir}/output_${lower_dataset}_${lower_config}_psfilter_${suffix}.log"
 
-    date | tee -a "${psfilter_output_log_file}"
-    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${psfilter_log_file} --post_sample_filter ${train_simple_args[@]} 2>&1 | tee ${psfilter_output_log_file}"
+    date | tee "${psfilter_output_log_file}"
+    echo "Command: python train_simple.py --extra_config ${config_file} --logfile ${psfilter_log_file} --post_sample_filter ${train_simple_args[@]} 2>&1 | tee -a ${psfilter_output_log_file}"
     set -x
     python train_simple.py --extra_config "${config_file}" --logfile "${psfilter_log_file}" --post_sample_filter "${train_simple_args[@]}" 2>&1 | tee -a "${psfilter_output_log_file}"
     set +x
