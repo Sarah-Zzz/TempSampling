@@ -531,6 +531,7 @@ nodes_reduced = 0
 time_updater = 0
 # TODO: track # of edges for post_sample_filter
 total_edges_sampled = 0
+tot_time_psf = 0
 
 
 observing = args.observing
@@ -1316,8 +1317,10 @@ for e in range(train_param['epoch']):
                 if gnn_param['arch'] != 'identity':
                     mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                 else:
-                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
-                    # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                    # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+                    time_psf_start = time.time()
+                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                    tot_time_psf += time.time() - time_psf_start
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_prepare_s = time.time()
                 mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -1727,7 +1730,12 @@ if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_l
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}, color count:{}, minimum node count:{}, coloring time {}\n'.format(total_train_time, total_batch_sum / total_batch_count, NUM_COLORS, color_sampler.color_bottom, total_coloring_time))
     print('\ttotal_edges_sampled: {}'.format(total_edges_sampled))
+    print('\ttotal_time_psf: {}'.format(tot_time_psf))
     log_file.write('\ttotal_edges_sampled: {}\n'.format(total_edges_sampled))
+    log_file.write('\ttotal_time_psf: {}\n'.format(tot_time_psf))
+    net_training_time = total_train_time - tot_time_psf
+    print('\tnet_training_time: {}'.format(net_training_time))
+    log_file.write('\tnet_training_time: {}\n'.format(net_training_time))
 else:
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}'.format(total_train_time, total_batch_sum / total_batch_count))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}\n'.format(total_train_time, total_batch_sum / total_batch_count))

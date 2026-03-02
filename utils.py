@@ -115,11 +115,66 @@ def to_dgl_blocks_ob(ret, hist, reverse=False, cuda=True):
     return mfgs
 
 
-def node_to_dgl_blocks(root_nodes, ts, cuda=True):
+def node_to_dgl_blocks(root_nodes, ts, cuda=True, node_stable_flag=None, neg_samples=1):
     mfgs = list()
-    b = dgl.create_block(([],[]), num_src_nodes=root_nodes.shape[0], num_dst_nodes=root_nodes.shape[0])
-    b.srcdata['ID'] = torch.from_numpy(root_nodes)
-    b.srcdata['ts'] = torch.from_numpy(ts)
+
+    if node_stable_flag is not None:
+        # node_stable_flag is a 1D tensor of 0s and 1s, indexed by node ID
+        # 0 means unstable, 1 means stable. We only keep unstable ones.
+        # To maintain the structure for EdgePredictor, we must filter in triples.
+        num_total = root_nodes.shape[0]
+        num_edge = num_total // (neg_samples + 2)
+        if num_total % (neg_samples + 2) == 0:
+            srcs = root_nodes[:num_edge]
+            dsts = root_nodes[num_edge:2*num_edge]
+            neg_dsts = root_nodes[2*num_edge:]
+            
+            mask_src = node_stable_flag[torch.from_numpy(srcs).to(node_stable_flag.device)] == 0
+            mask_dst = node_stable_flag[torch.from_numpy(dsts).to(node_stable_flag.device)] == 0
+            mask_edge = (mask_src | mask_dst).cpu().numpy().astype(bool)
+            
+            # Filter srcs, dsts
+            srcs_filtered = srcs[mask_edge]
+            dsts_filtered = dsts[mask_edge]
+            
+            # Filter neg_dsts: it has num_edge * neg_samples elements
+            # We need to keep neg_samples for each kept edge
+            if neg_samples == 1:
+                neg_dsts_filtered = neg_dsts[mask_edge]
+            else:
+                neg_dsts_reshaped = neg_dsts.reshape(num_edge, neg_samples)
+                neg_dsts_filtered = neg_dsts_reshaped[mask_edge].flatten()
+            
+            root_nodes_filtered = np.concatenate([srcs_filtered, dsts_filtered, neg_dsts_filtered])
+            
+            # Filter ts similarly
+            ts_srcs = ts[:num_edge]
+            ts_dsts = ts[num_edge:2*num_edge]
+            ts_neg_dsts = ts[2*num_edge:]
+            
+            ts_srcs_filtered = ts_srcs[mask_edge]
+            ts_dsts_filtered = ts_dsts[mask_edge]
+            if neg_samples == 1:
+                ts_neg_dsts_filtered = ts_neg_dsts[mask_edge]
+            else:
+                ts_neg_dsts_reshaped = ts_neg_dsts.reshape(num_edge, neg_samples)
+                ts_neg_dsts_filtered = ts_neg_dsts_reshaped[mask_edge].flatten()
+            
+            ts_filtered = np.concatenate([ts_srcs_filtered, ts_dsts_filtered, ts_neg_dsts_filtered])
+        else:
+            # Fallback for individual filtering if structure is unknown
+            mask = node_stable_flag[torch.from_numpy(root_nodes).to(node_stable_flag.device)] == 0
+            mask_np = mask.cpu().numpy().astype(bool)
+            root_nodes_filtered = root_nodes[mask_np]
+            ts_filtered = ts[mask_np]
+    else:
+        root_nodes_filtered = root_nodes
+        ts_filtered = ts
+
+    num_nodes = root_nodes_filtered.shape[0]
+    b = dgl.create_block(([],[]), num_src_nodes=num_nodes, num_dst_nodes=num_nodes)
+    b.srcdata['ID'] = torch.from_numpy(root_nodes_filtered)
+    b.srcdata['ts'] = torch.from_numpy(ts_filtered)
     if cuda:
         mfgs.insert(0, [b.to('cuda:0')])
     else:
