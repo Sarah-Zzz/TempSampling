@@ -34,6 +34,8 @@ LOSS=$(grep -o "ave val loss [0-9.]*" "$INPUT_FILE" | tail -n 1 | awk '{print $4
 # min val loss
 MINLOSS=$(grep -o "min val loss [0-9.]*" "$INPUT_FILE" | tail -n 1 | awk '{print $4}')
 
+NET_TRAIN_TIME=$(grep -o "net_training_time: [0-9.]*" "$INPUT_FILE" | tail -n 1 | awk '{print $2}')
+
 # Print results
 # echo "Epoch: $EPOCH"
 # echo "Total Training Time: $TRAIN_TIME"
@@ -47,3 +49,4 @@ echo "$EDGES"
 echo "$AUC"
 echo "$LOSS"
 echo "$MINLOSS"
+echo "$NET_TRAIN_TIME"
