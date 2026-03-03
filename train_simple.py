@@ -841,9 +841,14 @@ for e in range(train_param['epoch']):
                 mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
             else:
                 # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
-                time_psf_start = time.time()
-                mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
-                tot_time_psf += time.time() - time_psf_start
+                if sampler is not None:
+                    # Already filtered in sampler
+                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+                else:
+                    time_psf_start = time.time()
+                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                    tot_time_psf += time.time() - time_psf_start
+
             prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
             t_prep_prepare_s = time.time()
             mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -1330,13 +1335,16 @@ for e in range(train_param['epoch']):
                 t_prep_s = time.time()
                 # if e == 15:
                 #     to_dgl_blocks_ob(ret, sample_param['history'])
-                if gnn_param['arch'] != 'identity' or sampler is not None:
+                if gnn_param['arch'] != 'identity':
                     mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                 else:
-                    # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
-                    time_psf_start = time.time()
-                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
-                    tot_time_psf += time.time() - time_psf_start
+                    if sampler is not None:
+                        # Already filtered in sampler
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+                    else:
+                        time_psf_start = time.time()
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                        tot_time_psf += time.time() - time_psf_start
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_prepare_s = time.time()
                 mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
