@@ -64,8 +64,12 @@ def main():
     min_val_loss_pattern = re.compile(r"min val loss\s*([\d.]+)")
     max_bs_pattern1 = re.compile(r"max_batch_size:\s*(\d+)")
     max_bs_pattern2 = re.compile(r"max_batch_size overriden by command line:\s*(\d+)")
-    similarity_pattern = re.compile(r"adaptive_update_similarity:\s*([\d.]+)")
-    history_pattern = re.compile(r"history:\s*(\d+)")
+    max_bs_pattern3 = re.compile(r"'max_batch_size':\s*(\d+)")
+    similarity_pattern1 = re.compile(r"adaptive_update_similarity:\s*([\d.]+)")
+    similarity_pattern2 = re.compile(r"'adaptive_update_similarity'\s*=\s*([\d.]+)")
+    history_pattern1 = re.compile(r"history:\s*(\d+)")
+    history_pattern2 = re.compile(r"overriding history:\s*(\d+)")
+    history_pattern3 = re.compile(r"'history':\s*(\d+)")
 
     try:
         with open(input_file, 'r') as f:
@@ -115,17 +119,25 @@ def main():
                 if m: min_val_loss = m.group(1)
                 
                 # max_bs
-                m1 = max_bs_pattern1.search(line)
-                if m1: max_bs = m1.group(1)
-                m2 = max_bs_pattern2.search(line)
-                if m2: max_bs = m2.group(1)
+                m = max_bs_pattern1.search(line)
+                if m: max_bs = m.group(1)
+                m = max_bs_pattern2.search(line)
+                if m: max_bs = m.group(1)
+                m = max_bs_pattern3.search(line)
+                if m: max_bs = m.group(1)
                 
                 # similarity
-                m = similarity_pattern.search(line)
+                m = similarity_pattern1.search(line)
+                if m: similarity = m.group(1)
+                m = similarity_pattern2.search(line)
                 if m: similarity = m.group(1)
                 
                 # history
-                m = history_pattern.search(line)
+                m = history_pattern1.search(line)
+                if m: history = m.group(1)
+                m = history_pattern2.search(line)
+                if m: history = m.group(1)
+                m = history_pattern3.search(line)
                 if m: history = m.group(1)
 
     except FileNotFoundError:
@@ -134,7 +146,7 @@ def main():
 
     # Output CSV format
     fields = [
-        date,
+        # date,
         model,
         dataset,
         mode,
