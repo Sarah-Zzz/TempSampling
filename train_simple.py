@@ -714,7 +714,7 @@ for e in range(train_param['epoch']):
                 if node_stable_flag is not None:
                     num_stable = torch.sum(node_stable_flag).item()
                     total_nodes = node_stable_flag.shape[0]
-                    print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(total_nodes, num_stable, (num_stable / total_nodes) * 100))
+                    # print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(total_nodes, num_stable, (num_stable / total_nodes) * 100))
                 else:
                     print("node_stable_flag is None")
             #########################################
@@ -1204,7 +1204,7 @@ for e in range(train_param['epoch']):
                     if node_stable_flag is not None:
                         num_stable = torch.sum(node_stable_flag).item()
                         total_nodes = node_stable_flag.shape[0]
-                        print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(total_nodes, num_stable, (num_stable / total_nodes) * 100))
+                        # print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(total_nodes, num_stable, (num_stable / total_nodes) * 100))
                     else:
                         print("node_stable_flag is None")
                 #########################################

@@ -336,6 +336,9 @@ class MailBox():
             ts = ts[:num_true_src_dst].to(self.device)
             similarity = self.similarity(memory, self.node_memory[nid])
             node_stable = similarity > threshold
+            num_nodes = node_stable.shape[0]
+            num_stable_nodes = torch.sum(node_stable).item()
+            print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(num_nodes, num_stable_nodes, (num_stable_nodes / num_nodes) * 100))
             if self.histroy_window_size > 2:
                 # prev_stable = self.node_stable_flag[nid]
                 self.node_stable_flag[nid, :-1] = self.node_stable_flag[nid, 1:]
