@@ -49,6 +49,7 @@ def main():
     max_bs = ""
     similarity = ""
     history = ""
+    tot_time_to_dgl_blocks_cuda = ""
 
     # Regex patterns
     model_pattern = re.compile(r"config/eval/([A-Z]+)_")
@@ -70,6 +71,7 @@ def main():
     history_pattern1 = re.compile(r"history:\s*(\d+)")
     history_pattern2 = re.compile(r"overriding history:\s*(\d+)")
     history_pattern3 = re.compile(r"'history':\s*(\d+)")
+    tot_time_to_dgl_blocks_cuda_pattern = re.compile(r"tot_time_to_dgl_blocks_cuda:\s*([\d.]+)")
 
     try:
         with open(input_file, 'r') as f:
@@ -140,6 +142,10 @@ def main():
                 m = history_pattern3.search(line)
                 if m: history = m.group(1)
 
+                # tot_time_to_dgl_blocks_cuda
+                m = tot_time_to_dgl_blocks_cuda_pattern.search(line)
+                if m: tot_time_to_dgl_blocks_cuda = m.group(1)
+
     except FileNotFoundError:
         print(f"Error: File {input_file} not found.")
         sys.exit(1)
@@ -161,6 +167,7 @@ def main():
         max_bs,
         similarity,
         history,
+        tot_time_to_dgl_blocks_cuda,
         input_file
     ]
     print(",".join(fields))

@@ -63,6 +63,7 @@ def parse_config(f):
 
 def to_dgl_blocks(ret, hist, reverse=False, cuda=True):
     mfgs = list()
+    to_dgl_blocks_cuda_time = 0
     for r in ret:
         if not reverse:
             # print(f"[PSF] num_src_nodes={r.dim_in()}, num_dst_nodes={r.dim_out()}, num_nodes={len(r.nodes())}")
@@ -77,12 +78,15 @@ def to_dgl_blocks(ret, hist, reverse=False, cuda=True):
             b.dstdata['ts'] = torch.from_numpy(r.ts())
         b.edata['ID'] = torch.from_numpy(r.eid())
         if cuda:
+            s_time = time.time()
             mfgs.append(b.to('cuda:0'))
+            to_dgl_blocks_cuda_time += time.time() - s_time
         else:
             mfgs.append(b)
     mfgs = list(map(list, zip(*[iter(mfgs)] * hist)))
     mfgs.reverse()
-    return mfgs
+    # print("to_dgl_blocks: move_to_cuda_time ", to_dgl_blocks_cuda_time)
+    return mfgs, to_dgl_blocks_cuda_time
 
 def to_dgl_blocks_ob(ret, hist, reverse=False, cuda=True):
     mfgs = list()

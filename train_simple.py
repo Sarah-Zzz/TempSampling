@@ -466,7 +466,7 @@ def eval(mode='val'):
                     # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
             if gnn_param['arch'] != 'identity':
-                mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                mfgs, _ = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
             else:
                 mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
             mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -487,7 +487,8 @@ def eval(mode='val'):
                 mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
                 block = None
                 if memory_param['deliver_to'] == 'neighbors':
-                    block = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)[0][0]
+                    block, _ = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)
+                    block = block[0][0]
                 mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block, neg_samples=neg_samples)
                 mailbox.update_memory(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, model.memory_updater.last_updated_ts, neg_samples=neg_samples)
         if mode == 'val':
@@ -539,7 +540,8 @@ time_updater = 0
 # TODO: track # of edges for post_sample_filter
 total_edges_sampled = 0
 tot_time_psf = 0
-
+# Total time spent on moving data to CUDA in `to_dgl_blocks``
+tot_time_to_dgl_blocks_cuda = 0
 
 observing = args.observing
 observing = False
@@ -838,7 +840,8 @@ for e in range(train_param['epoch']):
             # if e == 15:
             #     to_dgl_blocks_ob(ret, sample_param['history'])
             if gnn_param['arch'] != 'identity' and sampler is not None:
-                mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                tot_time_to_dgl_blocks_cuda += time_mv_cuda
             else:
                 # mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
                 if sampler is not None:
@@ -891,7 +894,8 @@ for e in range(train_param['epoch']):
                 mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
                 block = None
                 if memory_param['deliver_to'] == 'neighbors':
-                    block = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)[0][0]
+                    block, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)[0][0]
+                    tot_time_to_dgl_blocks_cuda += time_mv_cuda
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_mailbox_s = time.time()
                 mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block)
@@ -1336,7 +1340,8 @@ for e in range(train_param['epoch']):
                 # if e == 15:
                 #     to_dgl_blocks_ob(ret, sample_param['history'])
                 if gnn_param['arch'] != 'identity':
-                    mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                    mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                    tot_time_to_dgl_blocks_cuda += time_mv_cuda
                 else:
                     if sampler is not None:
                         # Already filtered in sampler
@@ -1388,7 +1393,9 @@ for e in range(train_param['epoch']):
                     mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
                     block = None
                     if memory_param['deliver_to'] == 'neighbors':
-                        block = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)[0][0]
+                        block, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)
+                        block = block[0][0]
+                        tot_time_to_dgl_blocks_cuda += time_mv_cuda
                     prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                     t_prep_mailbox_s = time.time()
                     mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block)
@@ -1490,7 +1497,8 @@ for e in range(train_param['epoch']):
                 time_sample += time.time() - t_tot_s
             t_prep_s = time.time()
             if gnn_param['arch'] != 'identity':
-                mfgs = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
+                tot_time_to_dgl_blocks_cuda += time_mv_cuda
             else:
                 mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
             prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
@@ -1561,7 +1569,9 @@ for e in range(train_param['epoch']):
                 mem_edge_feats = edge_feats[eid] if edge_feats is not None else None
                 block = None
                 if memory_param['deliver_to'] == 'neighbors':
-                    block = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)[0][0]
+                    block, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], reverse=True, cuda=ALL_GPU)
+                    block = block[0][0]
+                    tot_time_to_dgl_blocks_cuda += time_mv_cuda
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_mailbox_s = time.time()
                 mailbox.update_mailbox(model.memory_updater.last_updated_nid, model.memory_updater.last_updated_memory, root_nodes, ts, mem_edge_feats, block)
@@ -1760,6 +1770,8 @@ if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_l
     net_training_time = total_train_time - tot_time_psf
     print('\tnet_training_time: {}'.format(net_training_time))
     log_file.write('\tnet_training_time: {}\n'.format(net_training_time))
+    print('\ttot_time_to_dgl_blocks_cuda: {}'.format(tot_time_to_dgl_blocks_cuda))
+    log_file.write('\ttot_time_to_dgl_blocks_cuda: {}\n'.format(tot_time_to_dgl_blocks_cuda))
 else:
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}'.format(total_train_time, total_batch_sum / total_batch_count))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}\n'.format(total_train_time, total_batch_sum / total_batch_count))
