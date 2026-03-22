@@ -64,6 +64,8 @@ parser.add_argument('--logfile', type=str, default='test.log', help='Log file na
 parser.add_argument('--post_sample_filter', action='store_true', help='whether to enable post-sample filter')
 parser.add_argument('--history', type=int, default=-1, help='sampling history (override the setting in config)')
 parser.add_argument('--adaptive_update_similarity', type=float, default=0.9, help='adaptive_update_similarity')
+parser.add_argument('--filter', action='store_true', help='whether to enable pre-sample and post-sample filters')
+parser.add_argument('--psf_identity', action='store_true', help='whether to enable filtering in node_to_dgl_blocks for gnn=identity')
 
 args=parser.parse_args()
 
@@ -192,6 +194,10 @@ print("max_batch_size overriden by command line:", MAX_BACTH_SIZE)
 NUM_COLORS = args.node_count if memory_param['type'] != 'none' else args.node_count
 args.mode = mode_from_cmdline
 args.adaptive_update_similarity = adaptive_update_similarity
+
+print("=========== Filter ===========")
+print("pre_and_post_filters:", args.filter)
+print("psf_identity:", args.psf_identity)
 
 print("=========== memory_param ================")
 print(memory_param)
@@ -561,7 +567,8 @@ print("node_number:", node_number)
 # EXPERIMENTAL: adaptive_updater---enable/disable adaptive updater
 #########################################
 adaptive_updater = None
-if args.adaptive_update:
+# if args.adaptive_update or args.post_sample_filter:
+if args.filter:
     adaptive_updater = Adaptive_Update_Controller(node_num=node_number,
                                       freeze_threshold=args.adaptive_update_similarity)
 #########################################
@@ -590,7 +597,7 @@ if 'reorder' in train_param:
         group_indexes.append(np.concatenate([additional_idx, base_idx])[:base_idx.shape[0]])
 
 for e in range(train_param['epoch']):
-    print('Epoch {:d}:'.format(e))
+    print('>>>>>> Epoch {:d}:'.format(e))
     print("check memory usage before each epoch...")
     check_memory_usage()
     # input("Press Enter to continue...")
@@ -604,7 +611,8 @@ for e in range(train_param['epoch']):
     ########################################
     # EXPERIMENTAL: adaptive_updater---enable/disable adaptive updater
     ########################################
-    if args.adaptive_update and adaptive_updater is not None:
+    # if args.adaptive_update and adaptive_updater is not None:
+    if args.filter:
         adaptive_updater.set_enable()
     #########################################
 
@@ -708,7 +716,8 @@ for e in range(train_param['epoch']):
             #########################################
             # EXPERIMENTAL: adaptive_updater (record up to date stable flag)---get node stable flag indicating whether the node is stable
             ########################################
-            if args.adaptive_update and adaptive_updater is not None:
+            # if args.adaptive_update and adaptive_updater is not None:
+            if args.filter:
                 node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                 if node_stable_flag is not None and args.batch_level_log:
                     print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
@@ -747,21 +756,33 @@ for e in range(train_param['epoch']):
             # EXPERIMENTAL: adaptive_updater(reduce stable root nodes)---based on node stable flag, we can reduce the number of root nodes
             ########################################
             nodes_updated += rows.shape[0]
-            if args.adaptive_update and adaptive_updater is not None:
+            # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
+            if args.filter:
                 t_updater_s = time.time()
                 # print("before", rows.shape, end="")
+                # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
+                # adaptive_updater.set_stable_record(node_stable_flag)
                 n_nodes1 = rows.shape[0]
-                # row filter is disabled, but we need the node_stable_flag
-                # rows = adaptive_updater.elastic_row_filer(rows)
-                # try:
-                #     rows = adaptive_updater.elastic_row_filer(rows)
-                # except Exception as e:
-                #     print("adaptive_updater error:", e)
-                #     rows = rows
-                # print(" --> after", rows.shape)
-                n_nodes2 = rows.shape[0]
-                nodes_reduced += (n_nodes1 - n_nodes2)
-                time_updater += time.time() - t_updater_s
+                # if args.post_sample_filter and sampler is None and gnn_param['arch'] == 'identity':
+
+                # Apply row filter (pre-sample filter) on APAN, JODIE
+                # APAN, JODIE both have gnn = 'identity'
+                if gnn_param['arch'] == 'identity':
+                    try:
+                        rows = adaptive_updater.elastic_row_filer(rows)
+                    except Exception as e:
+                        print("adaptive_updater error:", e)
+                        rows = rows
+                    # To fix the runtime error when row is empty (memorys.py):
+                    #    b.srcdata['mem_input'] = self.mailbox[idx].cuda().reshape(b.srcdata['ID'].shape[0], -1)
+                    # RuntimeError: cannot reshape tensor of 0 elements into shape [0, -1] because the unspecified dimension size -1 can be any value and is ambiguous
+                    if len(rows) == 0:
+                        ptr_start = ptr_end
+                        print("!!!! empty row !!!!")
+                        continue
+                    n_nodes2 = rows.shape[0]
+                    nodes_reduced += (n_nodes1 - n_nodes2)
+                    time_updater += time.time() - t_updater_s
             #########################################
 
             root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
@@ -793,10 +814,10 @@ for e in range(train_param['epoch']):
                     #     pos_root_end = pos_root_end_reduced
                     # else:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
                     # sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
                 else:
-                    sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
                     # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
                 # edges_sampled = 0
@@ -848,10 +869,12 @@ for e in range(train_param['epoch']):
                     # Already filtered in sampler
                     mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
                 else:
-                    time_psf_start = time.time()
-                    mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
-                    tot_time_psf += time.time() - time_psf_start
-
+                    if args.psf_identity:
+                        time_psf_start = time.time()
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
+                        tot_time_psf += time.time() - time_psf_start
+                    else:
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
             prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
             t_prep_prepare_s = time.time()
             mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -1196,7 +1219,8 @@ for e in range(train_param['epoch']):
                 #########################################
                 # EXPERIMENTAL: adaptive_updater (record up to date stable flag)---get node stable flag indicating whether the node is stable
                 ########################################
-                if args.adaptive_update and adaptive_updater is not None:
+                # if args.adaptive_update and adaptive_updater is not None:
+                if args.filter:
                     node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                     if node_stable_flag is not None and args.batch_level_log:
                         print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
@@ -1239,28 +1263,38 @@ for e in range(train_param['epoch']):
                 # EXPERIMENTAL: adaptive_updater(reduce stable root nodes)---based on node stable flag, we can reduce the number of root nodes
                 ########################################
                 nodes_updated += rows.shape[0]
-                if args.adaptive_update and adaptive_updater is not None:
+                # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
+                if args.filter:
                     t_updater_s = time.time()
                     # print("before", rows.shape, end="")
+                    # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
+                    # adaptive_updater.set_stable_record(node_stable_flag)
                     n_nodes1 = rows.shape[0]
-                    # row filter is disabled, but we need the node_stable_flag
-                    # try:
-                    #     rows = adaptive_updater.elastic_row_filer(rows)
-                    # except Exception as e:
-                    #     print("adaptive_updater error:", e)
-                    #     rows = rows
-                    # print(" --> after", rows.shape)
-                    n_nodes2 = rows.shape[0]
-                    nodes_reduced += (n_nodes1 - n_nodes2)
-                    t_updater = time.time() - t_updater_s
-                    time_updater_chunk += t_updater
-                    time_updater += t_updater
-                # if args.adaptive_update and adaptive_updater is not None:
-                #     try:
-                #         rows = adaptive_updater.elastic_row_filer(rows)
-                #     except Exception as e:
-                #         print("adaptive_updater error:", e)
-                #         rows = rows
+                    # if args.post_sample_filter and sampler is None and gnn_param['arch'] == 'identity':
+                    # if args.post_sample_filter and gnn_param['arch'] == 'identity':
+
+                    # Apply row filter on APAN, JODIE
+                    # APAN, JODIE both have gnn = 'identity'
+                    if gnn_param['arch'] == 'identity':
+                        try:
+                            rows = adaptive_updater.elastic_row_filer(rows)
+                        except Exception as e:
+                            print("adaptive_updater error:", e)
+                            rows = rows
+                        # print("row filter: ", n_nodes1, "->", rows.shape[0])
+                        # To fix the runtime error when row is empty (memorys.py):
+                        #    b.srcdata['mem_input'] = self.mailbox[idx].cuda().reshape(b.srcdata['ID'].shape[0], -1)
+                        # RuntimeError: cannot reshape tensor of 0 elements into shape [0, -1] because the unspecified dimension size -1 can be any value and is ambiguous
+                        if len(rows) == 0:
+                            ptr_start = ptr_end
+                            print("!!!! empty row !!!!")
+                            continue
+                        # print(" --> after", rows.shape)
+                        n_nodes2 = rows.shape[0]
+                        nodes_reduced += (n_nodes1 - n_nodes2)
+                        t_updater = time.time() - t_updater_s
+                        time_updater_chunk += t_updater
+                        time_updater += t_updater
                 #########################################
                 root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
                 ts = np.concatenate([rows.time.values, rows.time.values, rows.time.values]).astype(np.float32)
@@ -1269,10 +1303,10 @@ for e in range(train_param['epoch']):
                 if sampler is not None:
                     if 'no_neg' in sample_param and sample_param['no_neg']:
                         pos_root_end = root_nodes.shape[0] * 2 // 3
-                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
+                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
                     else:
                         # print("[PSF] node_stable_flag: ", node_stable_flag if args.post_sample_filter else None)
-                        sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
+                        sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
                     ret = sampler.get_ret()
                     edges_sampled = sum(len(r.eid()) for r in ret)
                     # print("[PSF] {} edges sampled".format(edges_sampled))
@@ -1340,16 +1374,28 @@ for e in range(train_param['epoch']):
                 # if e == 15:
                 #     to_dgl_blocks_ob(ret, sample_param['history'])
                 if gnn_param['arch'] != 'identity':
+                    # TGN
                     mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                     tot_time_to_dgl_blocks_cuda += time_mv_cuda
                 else:
-                    if sampler is not None:
-                        # Already filtered in sampler
-                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
-                    else:
+                    # APAN, JODIE: Whether to apply filter in `node_to_dgl_blocks`
+                    if args.psf_identity:
                         time_psf_start = time.time()
-                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
                         tot_time_psf += time.time() - time_psf_start
+                    else:
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+
+                    # if sampler is not None:
+                    #     # APAN
+                    #     time_psf_start = time.time()
+                    #     mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                    #     tot_time_psf += time.time() - time_psf_start
+                    # else:
+                    #     # JODIE
+                    #     time_psf_start = time.time()
+                    #     mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.post_sample_filter else None)
+                    #     tot_time_psf += time.time() - time_psf_start
                 prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
                 t_prep_prepare_s = time.time()
                 mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -1484,14 +1530,38 @@ for e in range(train_param['epoch']):
             batch_sizes.append(len(rows))
 
             t_tot_s = time.time()
+            #########################################
+            # EXPERIMENTAL: adaptive_updater(reduce stable root nodes)---based on node stable flag, we can reduce the number of root nodes
+            ########################################
+            nodes_updated += rows.shape[0]
+            # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
+            if args.filter:
+                t_updater_s = time.time()
+                node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
+                adaptive_updater.set_stable_record(node_stable_flag)
+                # if args.post_sample_filter and sampler is None and gnn_param['arch'] == 'identity':
+                if gnn_param['arch'] == 'identity':
+                    n_nodes1 = rows.shape[0]
+                    try:
+                        rows = adaptive_updater.elastic_row_filer(rows)
+                    except Exception as e:
+                        print("adaptive_updater error:", e)
+                        rows = rows
+                    if len(rows) == 0:
+                        continue
+                    n_nodes2 = rows.shape[0]
+                    nodes_reduced += (n_nodes1 - n_nodes2)
+                time_updater += time.time() - t_updater_s
+            #########################################
+
             root_nodes = np.concatenate([rows.src.values, rows.dst.values, neg_link_sampler.sample(len(rows))]).astype(np.int32)
             ts = np.concatenate([rows.time.values, rows.time.values, rows.time.values]).astype(np.float32)
             if sampler is not None:
                 if 'no_neg' in sample_param and sample_param['no_neg']:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.post_sample_filter else None)
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
                 else:
-                    sampler.sample(root_nodes, ts, node_stable_flag if args.post_sample_filter else None)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
                 ret = sampler.get_ret()
                 # time_sample += ret[0].sample_time()
                 time_sample += time.time() - t_tot_s
@@ -1500,7 +1570,7 @@ for e in range(train_param['epoch']):
                 mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                 tot_time_to_dgl_blocks_cuda += time_mv_cuda
             else:
-                mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
+                mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
             prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
             t_prep_prepare_s = time.time()
             mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
@@ -1767,7 +1837,7 @@ if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_l
     print('\ttotal_time_psf: {}'.format(tot_time_psf))
     log_file.write('\ttotal_edges_sampled: {}\n'.format(total_edges_sampled))
     log_file.write('\ttotal_time_psf: {}\n'.format(tot_time_psf))
-    net_training_time = total_train_time - tot_time_psf
+    net_training_time = total_train_time - tot_time_psf - time_updater
     print('\tnet_training_time: {}'.format(net_training_time))
     log_file.write('\tnet_training_time: {}\n'.format(net_training_time))
     print('\ttot_time_to_dgl_blocks_cuda: {}'.format(tot_time_to_dgl_blocks_cuda))

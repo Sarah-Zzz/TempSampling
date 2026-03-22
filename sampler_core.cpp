@@ -231,7 +231,7 @@ class ParallelSampler
                 auto stable_flag_data = node_stable_flag_ptr->unchecked<1>();
                 NodeIDType dst_node_id = indices[k];
                 // Exp: Skip the edge if src node is stable
-                if (stable_flag_data(src_node_id)) { // && stable_flag_data(dst_node_id)) {
+                if (stable_flag_data(src_node_id) && stable_flag_data(dst_node_id)) {
                     // std::cout << "[add_neighbor] SKIP [" << src_node_id << ", " << dst_node_id << "]" << std::endl;
                     return;
                 }

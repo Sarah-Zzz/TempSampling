@@ -39,7 +39,7 @@ def main():
     dataset = ""
     mode = ""
     num_epochs = ""
-    post_sample_filter = ""
+    pre_and_post_filters = ""
     training_time = ""
     events_sampled = ""
     best_auc = ""
@@ -56,7 +56,8 @@ def main():
     dataset_pattern = re.compile(r"'data':\s*'([^']+)'")
     mode_pattern = re.compile(r"mode\s+(\S+)")
     epoch_pattern = re.compile(r"'epoch':\s*(\d+)")
-    post_sample_filter_pattern = re.compile(r"post-sample filter:\s*(\S+)")
+    # post_sample_filter_pattern = re.compile(r"post-sample filter:\s*(\S+)")
+    post_sample_filter_pattern = re.compile(r"pre_and_post_filters:\s*(\S+)")
     net_training_time_pattern = re.compile(r"net_training_time:\s*([\d.]+)")
     total_training_time_pattern = re.compile(r"Total training time:\s*([\d.]+)")
     events_sampled_pattern = re.compile(r"total_edges_sampled:\s*(\d+)")
@@ -92,9 +93,9 @@ def main():
                 m = epoch_pattern.search(line)
                 if m: num_epochs = m.group(1)
 
-                # post_sample_filter
+                # pre_and_post_filters
                 m = post_sample_filter_pattern.search(line)
-                if m: post_sample_filter = m.group(1)
+                if m: pre_and_post_filters = m.group(1)
                 
                 # training_time
                 m1 = net_training_time_pattern.search(line)
@@ -157,7 +158,7 @@ def main():
         dataset,
         mode,
         num_epochs,
-        post_sample_filter,
+        pre_and_post_filters,
         training_time,
         events_sampled,
         best_auc,
