@@ -66,6 +66,7 @@ parser.add_argument('--history', type=int, default=-1, help='sampling history (o
 parser.add_argument('--adaptive_update_similarity', type=float, default=0.9, help='adaptive_update_similarity')
 parser.add_argument('--filter', action='store_true', help='whether to enable pre-sample and post-sample filters')
 parser.add_argument('--psf_identity', action='store_true', help='whether to enable filtering in node_to_dgl_blocks for gnn=identity')
+parser.add_argument('--ob_loss', action='store_true', help='whether to observe per event loss')
 
 args=parser.parse_args()
 
@@ -267,6 +268,7 @@ if 'combine_neighs' in train_param and train_param['combine_neighs']:
 model = GeneralModel(gnn_dim_node, gnn_dim_edge, sample_param, memory_param, gnn_param, train_param, combined=combine_first).cuda()
 mailbox = MailBox(memory_param, g['indptr'].shape[0] - 1, gnn_dim_edge) if memory_param['type'] != 'none' else None
 creterion = torch.nn.BCEWithLogitsLoss()
+creterion_ob = torch.nn.BCEWithLogitsLoss(reduction='none')
 optimizer = torch.optim.Adam(model.parameters(), lr=train_param['lr'])
 # ALL_GPU = False
 ALL_GPU = True
@@ -717,8 +719,9 @@ for e in range(train_param['epoch']):
             # EXPERIMENTAL: adaptive_updater (record up to date stable flag)---get node stable flag indicating whether the node is stable
             ########################################
             # if args.adaptive_update and adaptive_updater is not None:
+            node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
             if args.filter:
-                node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
+                # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                 if node_stable_flag is not None and args.batch_level_log:
                     print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
                 adaptive_updater.set_stable_record(node_stable_flag)
@@ -890,6 +893,9 @@ for e in range(train_param['epoch']):
             rng = nvtx.start_range(message="train")
             pred_pos, pred_neg = model(mfgs)
             loss = creterion(pred_pos, torch.ones_like(pred_pos))
+            if args.ob_loss:
+                loss_ob = creterion_ob(pred_pos, torch.ones_like(pred_pos))
+                print("loss_ob:", loss_ob)
             loss += creterion(pred_neg, torch.zeros_like(pred_neg))
             # total_loss += float(loss) * train_param['batch_size']
             total_loss += float(loss) * len(rows)
@@ -1220,8 +1226,9 @@ for e in range(train_param['epoch']):
                 # EXPERIMENTAL: adaptive_updater (record up to date stable flag)---get node stable flag indicating whether the node is stable
                 ########################################
                 # if args.adaptive_update and adaptive_updater is not None:
+                node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                 if args.filter:
-                    node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
+                    # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                     if node_stable_flag is not None and args.batch_level_log:
                         print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
                         # print("batch_level_log:", args.batch_level_log)
@@ -1413,6 +1420,22 @@ for e in range(train_param['epoch']):
                 # sys.exit(0)
                 pred_pos, pred_neg = model(mfgs)
                 loss = creterion(pred_pos, torch.ones_like(pred_pos))
+                if args.ob_loss:
+                    loss_ob = creterion_ob(pred_pos, torch.ones_like(pred_pos))
+                    if node_stable_flag is not None:
+                        src_ts = torch.from_numpy(rows.src.values).long()
+                        dst_ts = torch.from_numpy(rows.dst.values).long()
+                        if src_ts.shape[0] == loss_ob.shape[0]:
+                            event_stable_flag = node_stable_flag[src_ts] & node_stable_flag[dst_ts]
+                            event_stable_flag = event_stable_flag.to(loss_ob.device)
+                            stable_loss = loss_ob[event_stable_flag]
+                            unstable_loss = loss_ob[~event_stable_flag]
+                            # print(f"Batch {cur_batch} | Stable loss: {stable_loss.mean().item() if stable_loss.numel() > 0 else 0:.4f} (cnt: {stable_loss.numel()}) | Unstable loss: {unstable_loss.mean().item() if unstable_loss.numel() > 0 else 0:.4f} (cnt: {unstable_loss.numel()})")
+                            print(f"Batch: {cur_batch} stable_loss: {stable_loss.mean().item() if stable_loss.numel() > 0 else 0:.4f} stable_cnt: {stable_loss.numel()} unstable_loss: {unstable_loss.mean().item() if unstable_loss.numel() > 0 else 0:.4f} unstable_cnt: {unstable_loss.numel()}")
+                        else:
+                            print(f"Warning: loss_ob shape {loss_ob.shape} does not match rows shape {rows.shape}")
+                    else:
+                        print("!!! node_stable_flag is None!")
                 loss += creterion(pred_neg, torch.zeros_like(pred_neg))
                 # total_loss += float(loss) * train_param['batch_size']
                 total_loss += float(loss) * len(rows)
@@ -1605,6 +1628,9 @@ for e in range(train_param['epoch']):
             rng = nvtx.start_range(message="train")
             pred_pos, pred_neg = model(mfgs)
             loss = creterion(pred_pos, torch.ones_like(pred_pos))
+            if args.ob_loss:
+                loss_ob = creterion_ob(pred_pos, torch.ones_like(pred_pos))
+                print("loss_ob:", loss_ob)
             loss += creterion(pred_neg, torch.zeros_like(pred_neg))
             # total_loss += float(loss) * train_param['batch_size']
             total_loss += float(loss) * len(rows)
