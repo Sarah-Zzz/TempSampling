@@ -81,11 +81,6 @@ echo "Starting runs for dataset: $dataset, config: $config, suffix: $suffix, exp
 echo "Results will be saved in: $results_dir"
 echo "Using config file: $config_file"
 
-# echo "Activating environment"
-# set -x
-# conda activate /ihome/yzhang/sarahz/miniconda3/envs/cascade
-# set +x
-
 # --- Baseline Run ---
 if [[ "$exp" == "base" || "$exp" == "both" ]]; then
     echo "--- Running Baseline ---"

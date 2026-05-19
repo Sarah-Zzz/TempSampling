@@ -87,9 +87,19 @@ def calculate_stats(log_file):
     print(f"avg_stable_loss, {avg_stable_loss:.4f}")
     print(f"max_stable_loss, {max_stable_loss:.4f}")
     print(f"min_stable_loss, {min_stable_loss:.4f}")
+    print(f"total_stable_cnt, {total_stable_cnt:.4f}")
+    print(f"total_weighted_stable_loss, {total_weighted_stable_loss:.4f}")
+
     print(f"avg_unstable_loss, {avg_unstable_loss:.4f}")
     print(f"max_unstable_loss, {max_unstable_loss:.4f}")
     print(f"min_unstable_loss, {min_unstable_loss:.4f}")
+    print(f"total_unstable_cnt, {total_unstable_cnt:.4f}")
+    print(f"total_weighted_unstable_loss, {total_weighted_unstable_loss:.4f}")
+
+    stable_cnt_ratio = total_stable_cnt / (total_stable_cnt + total_unstable_cnt)
+    stable_loss_contrib = total_weighted_stable_loss / (total_weighted_stable_loss + total_weighted_unstable_loss)
+    print(f"stable_cnt_ratio, {stable_cnt_ratio:.4f}")
+    print(f"stable_loss_contrib, {stable_loss_contrib:.4f}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

@@ -61,10 +61,12 @@ parser.add_argument('--adaptive_update', action='store_true', help='whether to u
 parser.add_argument('--extra_config', type=str, default='', help='path to extra config parameters for the trainer/batching, e.g., --extra_config "config/adapt_exp/WIKI/TGN.yml"')
 
 parser.add_argument('--logfile', type=str, default='test.log', help='Log file name')
-parser.add_argument('--post_sample_filter', action='store_true', help='whether to enable post-sample filter')
+# parser.add_argument('--post_sample_filter', action='store_true', help='whether to enable post-sample filter')
 parser.add_argument('--history', type=int, default=-1, help='sampling history (override the setting in config)')
 parser.add_argument('--adaptive_update_similarity', type=float, default=0.9, help='adaptive_update_similarity')
 parser.add_argument('--filter', action='store_true', help='whether to enable pre-sample and post-sample filters')
+parser.add_argument('--row_filter_only', action='store_true', help='whether to enable row filter (pre-sample filter)')
+parser.add_argument('--sample_filter_only', action='store_true', help='whether to enable post-sample filter')
 parser.add_argument('--psf_identity', action='store_true', help='whether to enable filtering in node_to_dgl_blocks for gnn=identity')
 parser.add_argument('--ob_loss', action='store_true', help='whether to observe per event loss')
 
@@ -199,6 +201,8 @@ args.adaptive_update_similarity = adaptive_update_similarity
 print("=========== Filter ===========")
 print("pre_and_post_filters:", args.filter)
 print("psf_identity:", args.psf_identity)
+print("row_filter_only:", args.row_filter_only)
+print("sample_filter_only:", args.sample_filter_only)
 
 print("=========== memory_param ================")
 print(memory_param)
@@ -209,7 +213,7 @@ print(gnn_param)
 print("=========== train_param ================")
 print(train_param)
 print("=========================================")
-print("post-sample filter: ", args.post_sample_filter)
+# print("post-sample filter: ", args.post_sample_filter)
 print("mode:", args.mode)
 print('adaptive_update_similarity:', args.adaptive_update_similarity)
 # sys.exit(0)
@@ -570,7 +574,7 @@ print("node_number:", node_number)
 #########################################
 adaptive_updater = None
 # if args.adaptive_update or args.post_sample_filter:
-if args.filter:
+if args.filter or args.row_filter_only:
     adaptive_updater = Adaptive_Update_Controller(node_num=node_number,
                                       freeze_threshold=args.adaptive_update_similarity)
 #########################################
@@ -614,7 +618,7 @@ for e in range(train_param['epoch']):
     # EXPERIMENTAL: adaptive_updater---enable/disable adaptive updater
     ########################################
     # if args.adaptive_update and adaptive_updater is not None:
-    if args.filter:
+    if args.filter or args.row_filter_only:
         adaptive_updater.set_enable()
     #########################################
 
@@ -720,7 +724,7 @@ for e in range(train_param['epoch']):
             ########################################
             # if args.adaptive_update and adaptive_updater is not None:
             node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
-            if args.filter:
+            if args.filter or args.row_filter_only:
                 # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                 if node_stable_flag is not None and args.batch_level_log:
                     print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
@@ -760,7 +764,7 @@ for e in range(train_param['epoch']):
             ########################################
             nodes_updated += rows.shape[0]
             # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
-            if args.filter:
+            if args.filter or args.row_filter_only:
                 t_updater_s = time.time()
                 # print("before", rows.shape, end="")
                 # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
@@ -770,7 +774,7 @@ for e in range(train_param['epoch']):
 
                 # Apply row filter (pre-sample filter) on APAN, JODIE
                 # APAN, JODIE both have gnn = 'identity'
-                if gnn_param['arch'] == 'identity':
+                if gnn_param['arch'] == 'identity' or args.row_filter_only:
                     try:
                         rows = adaptive_updater.elastic_row_filer(rows)
                     except Exception as e:
@@ -817,10 +821,10 @@ for e in range(train_param['epoch']):
                     #     pos_root_end = pos_root_end_reduced
                     # else:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter or args.sample_filter_only else None)
                     # sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end])
                 else:
-                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter or args.sample_filter_only else None)
                     # sampler.sample(root_nodes, ts)
                 ret = sampler.get_ret()
                 # edges_sampled = 0
@@ -874,7 +878,7 @@ for e in range(train_param['epoch']):
                 else:
                     if args.psf_identity:
                         time_psf_start = time.time()
-                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter or args.sample_filter_only else None)
                         tot_time_psf += time.time() - time_psf_start
                     else:
                         mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
@@ -1227,7 +1231,7 @@ for e in range(train_param['epoch']):
                 ########################################
                 # if args.adaptive_update and adaptive_updater is not None:
                 node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
-                if args.filter:
+                if args.filter or args.row_filter_only:
                     # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                     if node_stable_flag is not None and args.batch_level_log:
                         print("node_stable_flag shape", node_stable_flag.shape, "stable count", torch.sum(node_stable_flag).item(), "total nodes", node_stable_flag.shape[0])
@@ -1271,7 +1275,7 @@ for e in range(train_param['epoch']):
                 ########################################
                 nodes_updated += rows.shape[0]
                 # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
-                if args.filter:
+                if args.filter or args.row_filter_only:
                     t_updater_s = time.time()
                     # print("before", rows.shape, end="")
                     # node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
@@ -1282,7 +1286,7 @@ for e in range(train_param['epoch']):
 
                     # Apply row filter on APAN, JODIE
                     # APAN, JODIE both have gnn = 'identity'
-                    if gnn_param['arch'] == 'identity':
+                    if gnn_param['arch'] == 'identity' or args.row_filter_only:
                         try:
                             rows = adaptive_updater.elastic_row_filer(rows)
                         except Exception as e:
@@ -1310,10 +1314,10 @@ for e in range(train_param['epoch']):
                 if sampler is not None:
                     if 'no_neg' in sample_param and sample_param['no_neg']:
                         pos_root_end = root_nodes.shape[0] * 2 // 3
-                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
+                        sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter or args.sample_filter_only else None)
                     else:
                         # print("[PSF] node_stable_flag: ", node_stable_flag if args.post_sample_filter else None)
-                        sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
+                        sampler.sample(root_nodes, ts, node_stable_flag if args.filter or args.sample_filter_only else None)
                     ret = sampler.get_ret()
                     edges_sampled = sum(len(r.eid()) for r in ret)
                     # print("[PSF] {} edges sampled".format(edges_sampled))
@@ -1388,7 +1392,7 @@ for e in range(train_param['epoch']):
                     # APAN, JODIE: Whether to apply filter in `node_to_dgl_blocks`
                     if args.psf_identity:
                         time_psf_start = time.time()
-                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
+                        mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter or args.sample_filter_only else None)
                         tot_time_psf += time.time() - time_psf_start
                     else:
                         mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU)
@@ -1558,12 +1562,12 @@ for e in range(train_param['epoch']):
             ########################################
             nodes_updated += rows.shape[0]
             # if (args.adaptive_update or args.post_sample_filter) and adaptive_updater is not None:
-            if args.filter:
+            if args.filter or args.row_filter_only:
                 t_updater_s = time.time()
                 node_stable_flag = mailbox.get_full_node_stable_flag() if mailbox is not None else None
                 adaptive_updater.set_stable_record(node_stable_flag)
                 # if args.post_sample_filter and sampler is None and gnn_param['arch'] == 'identity':
-                if gnn_param['arch'] == 'identity':
+                if gnn_param['arch'] == 'identity' or args.row_filter_only:
                     n_nodes1 = rows.shape[0]
                     try:
                         rows = adaptive_updater.elastic_row_filer(rows)
@@ -1582,9 +1586,9 @@ for e in range(train_param['epoch']):
             if sampler is not None:
                 if 'no_neg' in sample_param and sample_param['no_neg']:
                     pos_root_end = root_nodes.shape[0] * 2 // 3
-                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter else None)
+                    sampler.sample(root_nodes[:pos_root_end], ts[:pos_root_end], node_stable_flag if args.filter or args.sample_filter_only else None)
                 else:
-                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter else None)
+                    sampler.sample(root_nodes, ts, node_stable_flag if args.filter or args.sample_filter_only else None)
                 ret = sampler.get_ret()
                 # time_sample += ret[0].sample_time()
                 time_sample += time.time() - t_tot_s
@@ -1593,7 +1597,7 @@ for e in range(train_param['epoch']):
                 mfgs, time_mv_cuda = to_dgl_blocks(ret, sample_param['history'], cuda=ALL_GPU)
                 tot_time_to_dgl_blocks_cuda += time_mv_cuda
             else:
-                mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter else None)
+                mfgs = node_to_dgl_blocks(root_nodes, ts, cuda=ALL_GPU, node_stable_flag = node_stable_flag if args.filter or args.sample_filter_only else None)
             prep_time_breakdown["to_dgl_blocks"] += time.time() - t_prep_s
             t_prep_prepare_s = time.time()
             mfgs = prepare_input(mfgs, node_feats, edge_feats, combine_first=combine_first)
