@@ -204,6 +204,8 @@ print("psf_identity:", args.psf_identity)
 print("row_filter_only:", args.row_filter_only)
 print("sample_filter_only:", args.sample_filter_only)
 
+stable_flag_timing_enabled = args.filter or args.psf_identity or args.row_filter_only or args.sample_filter_only
+
 print("=========== memory_param ================")
 print(memory_param)
 print("=========== sample_param ================")
@@ -271,6 +273,8 @@ if 'combine_neighs' in train_param and train_param['combine_neighs']:
     combine_first = True
 model = GeneralModel(gnn_dim_node, gnn_dim_edge, sample_param, memory_param, gnn_param, train_param, combined=combine_first).cuda()
 mailbox = MailBox(memory_param, g['indptr'].shape[0] - 1, gnn_dim_edge) if memory_param['type'] != 'none' else None
+if mailbox is not None:
+    mailbox.enable_stable_flag_timing = stable_flag_timing_enabled
 creterion = torch.nn.BCEWithLogitsLoss()
 creterion_ob = torch.nn.BCEWithLogitsLoss(reduction='none')
 optimizer = torch.optim.Adam(model.parameters(), lr=train_param['lr'])
@@ -554,6 +558,8 @@ total_edges_sampled = 0
 tot_time_psf = 0
 # Total time spent on moving data to CUDA in `to_dgl_blocks``
 tot_time_to_dgl_blocks_cuda = 0
+total_stable_flag_update_time = 0.0
+total_stable_flag_get_time = 0.0
 
 observing = args.observing
 observing = False
@@ -637,6 +643,8 @@ for e in range(train_param['epoch']):
     prep_time_breakdown = {"to_dgl_blocks": 0, "mailbox_updating":0, "pack_batch":0}
     color_time_breakdown = {"forming_batch": 0, "coloring": 0, "model training": 0, "record memory": 0, "others": 0}
     batching_time_breakdown = {"sampling":0, "updating_indptr":0, "updating_stable_flag":0, "others":0}
+    epoch_stable_flag_update_time = 0.0
+    epoch_stable_flag_get_time = 0.0
 
 
     ########################################
@@ -1024,6 +1032,17 @@ for e in range(train_param['epoch']):
             batching_time_breakdown["updating_stable_flag"]
         ))
         log_file.flush()
+        if mailbox is not None and mailbox.enable_stable_flag_timing:
+            epoch_stable_flag_update_time += mailbox.stable_flag_update_time
+            epoch_stable_flag_get_time += mailbox.stable_flag_get_time
+            print("\t[epoch stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s".format(
+                epoch_stable_flag_update_time, epoch_stable_flag_get_time))
+            log_file.write("stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s\n".format(
+                epoch_stable_flag_update_time, epoch_stable_flag_get_time))
+            total_stable_flag_update_time += epoch_stable_flag_update_time
+            total_stable_flag_get_time += epoch_stable_flag_get_time
+            mailbox.stable_flag_update_time = 0.0
+            mailbox.stable_flag_get_time = 0.0
 
         if args.observing and SAVE_COUNT:
             batch_max_color_counts = np.array(batch_max_color_counts)
@@ -1539,7 +1558,23 @@ for e in range(train_param['epoch']):
                 batching_time_breakdown["updating_indptr"],
                 batching_time_breakdown["updating_stable_flag"]
             ))
-        log_file.flush()
+            log_file.flush()
+            if mailbox is not None and mailbox.enable_stable_flag_timing:
+                epoch_stable_flag_update_time += mailbox.stable_flag_update_time
+                epoch_stable_flag_get_time += mailbox.stable_flag_get_time
+                print("\t[chunk stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s".format(
+                    mailbox.stable_flag_update_time, mailbox.stable_flag_get_time))
+                log_file.write("stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s\n".format(
+                    mailbox.stable_flag_update_time, mailbox.stable_flag_get_time))
+                mailbox.stable_flag_update_time = 0.0
+                mailbox.stable_flag_get_time = 0.0
+        if mailbox is not None and mailbox.enable_stable_flag_timing:
+            print("\t[epoch stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s".format(
+                epoch_stable_flag_update_time, epoch_stable_flag_get_time))
+            log_file.write("[epoch stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s\n".format(
+                epoch_stable_flag_update_time, epoch_stable_flag_get_time))
+            total_stable_flag_update_time += epoch_stable_flag_update_time
+            total_stable_flag_get_time += epoch_stable_flag_get_time
     else:
         # for i, rows in df[:train_edge_end].groupby(group_indexes[random.randint(0, len(group_indexes) - 1)]):
         for i, rows in df[:train_edge_end].groupby(group_idx):
@@ -1875,6 +1910,12 @@ if args.mode == 'batch_stable_freezing' or args.mode == 'batch_stable_freezing_l
 else:
     print('\tTotal training time:{:.2f}s, average batch size:{:.2f}'.format(total_train_time, total_batch_sum / total_batch_count))
     log_file.write('\tTotal training time:{:.2f}s, average batch size:{:.2f}\n'.format(total_train_time, total_batch_sum / total_batch_count))
+
+if mailbox is not None and mailbox.enable_stable_flag_timing:
+    print("\t[final stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s".format(
+        total_stable_flag_update_time, total_stable_flag_get_time))
+    log_file.write("[final stats] stable_flag_update_time: {:.6f}s, stable_flag_get_time: {:.6f}s\n".format(
+        total_stable_flag_update_time, total_stable_flag_get_time))
 
 print('\tBest epoch:{:d}  Best AP:{:4f}  Best AUC:{:4f}'.format(best_e, best_ap, best_auc), 
       "ave val loss {:.4f}, min val loss {:.4f}".format(sum(val_losses) / len(val_losses), min(val_losses)))

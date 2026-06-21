@@ -1,3 +1,4 @@
+import time
 import torch
 import dgl
 from layers import TimeEncode
@@ -246,6 +247,7 @@ class MailBox():
         self.freeze_threshold = 0.9
         self.frozen_node_mask = torch.zeros((num_nodes), dtype=torch.long)
         self.similarity = torch.nn.CosineSimilarity(dim=1, eps=1e-6)
+        self.enable_stable_flag_timing = False
         
     def reset(self):
         self.node_memory.fill_(0)
@@ -324,7 +326,11 @@ class MailBox():
             # collect_profile(nid.long(), memory, self.node_memory)
 
     def get_full_node_stable_flag(self):
-        return self.node_stable_flag[:,-1].cpu()
+        t_get = time.time()
+        result = self.node_stable_flag[:, -1].cpu()
+        if self.enable_stable_flag_timing:
+            self.stable_flag_get_time += time.time() - t_get
+        return result
 
     def update_memory_and_check_stablizing(self, nid, memory, root_nodes, ts, neg_samples=1, threshold=0.9, any=True):
         if nid is None:
@@ -334,15 +340,17 @@ class MailBox():
             nid = nid[:num_true_src_dst].to(self.device).long()
             memory = memory[:num_true_src_dst].to(self.device)
             ts = ts[:num_true_src_dst].to(self.device)
+            t_flag_calc = time.time()
             similarity = self.similarity(memory, self.node_memory[nid])
             node_stable = similarity > threshold
             num_nodes = node_stable.shape[0]
             num_stable_nodes = torch.sum(node_stable).item()
             print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(num_nodes, num_stable_nodes, (num_stable_nodes / num_nodes) * 100))
             if self.histroy_window_size > 2:
-                # prev_stable = self.node_stable_flag[nid]
                 self.node_stable_flag[nid, :-1] = self.node_stable_flag[nid, 1:]
             self.node_stable_flag[nid, -1] = node_stable
+            if self.enable_stable_flag_timing:
+                self.stable_flag_update_time += time.time() - t_flag_calc
 
             self.node_memory[nid] = memory
             self.node_memory_ts[nid] = ts
@@ -387,6 +395,8 @@ class MailBox():
         self.total_stable_count_node = 0
         self.total_check_count_event = 0
         self.total_stable_count_event = 0
+        self.stable_flag_update_time = 0.0
+        self.stable_flag_get_time = 0.0
 
 
     def record_recent_memory_history(self, nid, memory, root_nodes, ts, neg_samples=1):
