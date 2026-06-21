@@ -332,6 +332,13 @@ class MailBox():
             self.stable_flag_get_time += time.time() - t_get
         return result
 
+    def get_full_node_stable_cosine(self):
+        t_get = time.time()
+        result = self.node_stable_cosine[:, -1].cpu()
+        if self.enable_stable_flag_timing:
+            self.stable_flag_get_time += time.time() - t_get
+        return result
+
     def update_memory_and_check_stablizing(self, nid, memory, root_nodes, ts, neg_samples=1, threshold=0.9, any=True):
         if nid is None:
             return
@@ -348,7 +355,9 @@ class MailBox():
             print("Total number of nodes: {}, number of stable nodes: {}, percentage of stable nodes: {:.2f}%".format(num_nodes, num_stable_nodes, (num_stable_nodes / num_nodes) * 100))
             if self.histroy_window_size > 2:
                 self.node_stable_flag[nid, :-1] = self.node_stable_flag[nid, 1:]
+                self.node_stable_cosine[nid, :-1] = self.node_stable_cosine[nid, 1:]
             self.node_stable_flag[nid, -1] = node_stable
+            self.node_stable_cosine[nid, -1] = similarity
             if self.enable_stable_flag_timing:
                 self.stable_flag_update_time += time.time() - t_flag_calc
 
@@ -391,6 +400,7 @@ class MailBox():
     def set_stablize_recorder(self, window_size):
         self.histroy_window_size = window_size
         self.node_stable_flag = torch.zeros((self.node_memory.shape[0],window_size-1), dtype=torch.bool).to(self.device)
+        self.node_stable_cosine = torch.zeros((self.node_memory.shape[0], window_size-1), dtype=torch.float32).to(self.device)
         self.total_check_count_node = 0
         self.total_stable_count_node = 0
         self.total_check_count_event = 0

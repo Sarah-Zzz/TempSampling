@@ -71,6 +71,10 @@ parser.add_argument('--psf_identity', action='store_true', help='whether to enab
 parser.add_argument('--ob_loss', action='store_true', help='whether to observe per event loss')
 parser.add_argument('--filtercap', type=float, default=1.0, help='fraction of stable root events to filter (0.0~1.0, default 1.0)')
 
+parser.add_argument('--compute_spearman', action='store_true', help='Compute Spearman rank correlation between cosine delta and per-event loss')
+parser.add_argument('--spearman_epoch_interval', type=int, default=1, help='Compute Spearman every N epochs (default 1)')
+parser.add_argument('--spearman_plot_dir', type=str, default='spearman_plots', help='Directory for Spearman scatter plots')
+
 args=parser.parse_args()
 
 max_bs_from_cmdline = args.max_batch_size
@@ -1186,6 +1190,8 @@ for e in range(train_param['epoch']):
         training_df = df[:train_edge_end]
         cur_batch = 0
 
+        spearman_data = {'root_delta': [], 'support_delta': [], 'loss': []}
+
         print("chunk size", chunk_size, "chunk num", chunk_num)
 
         for i in range(chunk_num):
@@ -1465,6 +1471,46 @@ for e in range(train_param['epoch']):
                 loss += creterion(pred_neg, torch.zeros_like(pred_neg))
                 # total_loss += float(loss) * train_param['batch_size']
                 total_loss += float(loss) * len(rows)
+
+                ########################################
+                # Spearman data collection per batch
+                ########################################
+                if args.compute_spearman and e % args.spearman_epoch_interval == 0 and len(rows) > 0:
+                    loss_per_event = creterion_ob(pred_pos, torch.ones_like(pred_pos))
+                    loss_per_event_np = loss_per_event.detach().cpu().numpy().flatten()
+                    batch_size = len(rows)
+                    src_nids = rows['src'].values.astype(np.int64)
+                    dst_nids = rows['dst'].values.astype(np.int64)
+                    node_cosine_t = mailbox.get_full_node_stable_cosine()
+                    node_cosine_np = node_cosine_t.numpy()
+                    root_cosine = (node_cosine_np[src_nids] + node_cosine_np[dst_nids]) / 2.0
+                    root_delta = 1.0 - root_cosine
+                    support_delta = np.full(batch_size, np.nan, dtype=np.float64)
+                    if sampler is not None and gnn_param['arch'] != 'identity':
+                        first_block = ret[0]
+                        block_nodes = first_block.nodes()
+                        row_arr = first_block.row().astype(np.int64)
+                        col_arr = first_block.col().astype(np.int64)
+                        support_map = {}
+                        for e_idx in range(len(row_arr)):
+                            root_gid = int(block_nodes[row_arr[e_idx]])
+                            supp_gid = int(block_nodes[col_arr[e_idx]])
+                            if root_gid not in support_map:
+                                support_map[root_gid] = set()
+                            support_map[root_gid].add(supp_gid)
+                        for evt_i in range(batch_size):
+                            src_gid = src_nids[evt_i]
+                            dst_gid = dst_nids[evt_i]
+                            supp_ids = set()
+                            supp_ids.update(support_map.get(src_gid, set()))
+                            supp_ids.update(support_map.get(dst_gid, set()))
+                            if supp_ids:
+                                supp_cos = node_cosine_np[list(supp_ids)]
+                                support_delta[evt_i] = 1.0 - float(np.mean(supp_cos))
+                    spearman_data['root_delta'].extend(root_delta.tolist())
+                    spearman_data['support_delta'].extend(support_delta.tolist())
+                    spearman_data['loss'].extend(loss_per_event_np.tolist())
+
                 loss.backward()
                 optimizer.step()
                 nvtx.end_range(rng)
@@ -1578,6 +1624,62 @@ for e in range(train_param['epoch']):
                 epoch_stable_flag_update_time, epoch_stable_flag_get_time))
             total_stable_flag_update_time += epoch_stable_flag_update_time
             total_stable_flag_get_time += epoch_stable_flag_get_time
+
+        ########################################
+        # Spearman correlation computation at epoch end
+        ########################################
+        if args.compute_spearman and e % args.spearman_epoch_interval == 0 and e > 0:
+            from scipy.stats import spearmanr
+            root_delta_arr = np.array(spearman_data['root_delta'], dtype=np.float64)
+            support_delta_arr = np.array(spearman_data['support_delta'], dtype=np.float64)
+            loss_arr = np.array(spearman_data['loss'], dtype=np.float64)
+            n_total = len(loss_arr)
+            valid_mask = ~np.isnan(support_delta_arr)
+            n_support_valid = valid_mask.sum()
+            spearman_results = {}
+            if n_total > 2:
+                rho_root, p_root = spearmanr(root_delta_arr, loss_arr)
+                spearman_results['rho_root'] = rho_root
+                spearman_results['p_root'] = p_root
+                print(f"[Spearman Epoch {e}] Root delta vs Loss:  rho={rho_root:.6f}, p={p_root:.6e} (N={n_total})")
+                log_file.write(f"[Spearman Epoch {e}] Root delta vs Loss:  rho={rho_root:.6f}, p={p_root:.6e} (N={n_total})\n")
+            else:
+                print(f"[Spearman Epoch {e}] Insufficient data for root correlation ({n_total} events)")
+                log_file.write(f"[Spearman Epoch {e}] Insufficient data for root correlation ({n_total} events)\n")
+            if n_support_valid > 2:
+                rho_support, p_support = spearmanr(support_delta_arr[valid_mask], loss_arr[valid_mask])
+                spearman_results['rho_support'] = rho_support
+                spearman_results['p_support'] = p_support
+                print(f"[Spearman Epoch {e}] Support delta vs Loss: rho={rho_support:.6f}, p={p_support:.6e} (N={n_support_valid})")
+                log_file.write(f"[Spearman Epoch {e}] Support delta vs Loss: rho={rho_support:.6f}, p={p_support:.6e} (N={n_support_valid})\n")
+            else:
+                print(f"[Spearman Epoch {e}] Insufficient support data ({n_support_valid} events with support)")
+                log_file.write(f"[Spearman Epoch {e}] Insufficient support data ({n_support_valid} events with support)\n")
+            os.makedirs(args.spearman_plot_dir, exist_ok=True)
+            fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+            ax0 = axes[0]
+            ax0.scatter(root_delta_arr, loss_arr, alpha=0.3, s=2, rasterized=True)
+            ax0.set_xlabel('Root Delta (1 - avg cosine similarity)')
+            ax0.set_ylabel('Per-Event Loss (BCE)')
+            title_root = f'Root delta vs Loss (Epoch {e})'
+            if 'rho_root' in spearman_results:
+                title_root += f'\nrho={spearman_results["rho_root"]:.4f}, p={spearman_results["p_root"]:.2e}'
+            ax0.set_title(title_root, fontsize=10)
+            ax1 = axes[1]
+            ax1.scatter(support_delta_arr[valid_mask], loss_arr[valid_mask], alpha=0.3, s=2, rasterized=True)
+            ax1.set_xlabel('Support Delta (1 - avg cosine of support nodes)')
+            ax1.set_ylabel('Per-Event Loss (BCE)')
+            title_supp = f'Support delta vs Loss (Epoch {e})'
+            if 'rho_support' in spearman_results:
+                title_supp += f'\nrho={spearman_results["rho_support"]:.4f}, p={spearman_results["p_support"]:.2e}'
+            ax1.set_title(title_supp, fontsize=10)
+            plt.tight_layout()
+            plot_path = os.path.join(args.spearman_plot_dir, f'spearman_epoch_{e}.png')
+            plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"[Spearman] Saved scatter plot: {plot_path}")
+            log_file.write(f"[Spearman] Saved scatter plot: {plot_path}\n")
+            log_file.flush()
     else:
         # for i, rows in df[:train_edge_end].groupby(group_indexes[random.randint(0, len(group_indexes) - 1)]):
         for i, rows in df[:train_edge_end].groupby(group_idx):
