@@ -69,6 +69,7 @@ parser.add_argument('--row_filter_only', action='store_true', help='whether to e
 parser.add_argument('--sample_filter_only', action='store_true', help='whether to enable post-sample filter')
 parser.add_argument('--psf_identity', action='store_true', help='whether to enable filtering in node_to_dgl_blocks for gnn=identity')
 parser.add_argument('--ob_loss', action='store_true', help='whether to observe per event loss')
+parser.add_argument('--filtercap', type=float, default=1.0, help='fraction of stable root events to filter (0.0~1.0, default 1.0)')
 
 args=parser.parse_args()
 
@@ -218,6 +219,7 @@ print("=========================================")
 # print("post-sample filter: ", args.post_sample_filter)
 print("mode:", args.mode)
 print('adaptive_update_similarity:', args.adaptive_update_similarity)
+print('filtercap:', args.filtercap)
 # sys.exit(0)
 
 total_coloring_time = 0
@@ -582,7 +584,8 @@ adaptive_updater = None
 # if args.adaptive_update or args.post_sample_filter:
 if args.filter or args.row_filter_only:
     adaptive_updater = Adaptive_Update_Controller(node_num=node_number,
-                                      freeze_threshold=args.adaptive_update_similarity)
+                                      freeze_threshold=args.adaptive_update_similarity,
+                                      filtercap=args.filtercap)
 #########################################
 
 log_file = open(args.logfile, 'w')

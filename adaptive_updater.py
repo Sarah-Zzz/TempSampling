@@ -26,11 +26,12 @@ class Adaptive_Update_Controller():
     - enable (bool): whether the controller is enabled or not, initialized to false
     """
 
-    def __init__(self, node_num, freeze_threshold=0.9):
+    def __init__(self, node_num, freeze_threshold=0.9, filtercap=1.0):
         """
         Args:
             node_num (int): number of nodes in the graph
             freeze_threshold (float): threshold to determine whether a node is stable or not, default is 0.9
+            filtercap (float): fraction of stable root events to filter (0.0~1.0), default 1.0
         """
         if not isinstance(node_num, int) or node_num <= 0:
             raise ValueError("node_num must be a positive integer.")
@@ -39,6 +40,7 @@ class Adaptive_Update_Controller():
 
         self.node_num = node_num
         self.freeze_threshold = freeze_threshold
+        self.filtercap = max(0.0, min(1.0, filtercap))
         self.stable_num = 0
         self.stable_record = None   # np.zeros((node_num,), dtype=np.int8)
         self.enable = False
@@ -117,13 +119,25 @@ class Adaptive_Update_Controller():
 
         if self.stable_record is None:
             return rows
-        # print(type(rows))
-        # print(rows[:5])
-        # src = rows['src'].astype(int).values
         src = torch.from_numpy(rows['src'].values).long()
-        # dst = rows['dst'].astype(int).values
         dst = torch.from_numpy(rows['dst'].values).long()
+        # mask: True=keep (at least one node is unstable), False=filter (both nodes stable)
         mask = (self.stable_record[src] == 0) | (self.stable_record[dst] == 0)
+
+        # When filtercap < 1.0, randomly retain a portion of the stable rows
+        # that would otherwise be filtered out entirely.
+        if self.filtercap < 1.0:
+            # stable rows: both src and dst are stable, currently marked as False in mask
+            stable = ~mask
+            if stable.any():
+                # keep_prob = 1 - filtercap
+                # e.g. filtercap=0.5 -> keep_prob=0.5 -> retain 50% of stable rows
+                keep_prob = 1.0 - self.filtercap
+                n_stable = stable.sum().item()
+                keep = torch.rand(n_stable) < keep_prob
+                # Flip the selected stable rows from False to True in mask
+                mask[torch.where(stable)[0][keep]] = True
+
         mask_np = mask.numpy()
         filtered_rows = rows[mask_np]
         return filtered_rows
