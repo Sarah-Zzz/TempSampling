@@ -74,6 +74,7 @@ parser.add_argument('--filtercap', type=float, default=1.0, help='fraction of st
 parser.add_argument('--compute_spearman', action='store_true', help='Compute Spearman rank correlation between cosine delta and per-event loss')
 parser.add_argument('--spearman_epoch_interval', type=int, default=1, help='Compute Spearman every N epochs (default 1)')
 parser.add_argument('--spearman_plot_dir', type=str, default='spearman_plots', help='Directory for Spearman scatter plots')
+parser.add_argument('--spearman_save_raw', action='store_true', help='Save raw per-event data (root_delta, support_delta, loss) as .npz')
 
 args=parser.parse_args()
 
@@ -1656,6 +1657,14 @@ for e in range(train_param['epoch']):
                 print(f"[Spearman Epoch {e}] Insufficient support data ({n_support_valid} events with support)")
                 log_file.write(f"[Spearman Epoch {e}] Insufficient support data ({n_support_valid} events with support)\n")
             os.makedirs(args.spearman_plot_dir, exist_ok=True)
+            if args.spearman_save_raw:
+                raw_path = os.path.join(args.spearman_plot_dir, f'spearman_raw_epoch_{e}.npz')
+                np.savez(raw_path,
+                         root_delta=root_delta_arr,
+                         support_delta=support_delta_arr,
+                         loss=loss_arr)
+                print(f"[Spearman] Saved raw data: {raw_path}")
+                log_file.write(f"[Spearman] Saved raw data: {raw_path}\n")
             fig, axes = plt.subplots(1, 2, figsize=(14, 5))
             ax0 = axes[0]
             ax0.scatter(root_delta_arr, loss_arr, alpha=0.3, s=2, rasterized=True)
